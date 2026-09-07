@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini Canvas Extractor — PDF &amp; Word Export</title>
+  <meta name="description" content="Paste a Gemini share link. Get PDF, Word, or print.">
+
+  <!-- Tailwind (layout utilities only — color comes from style.css tokens) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Marked Markdown Parser -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- KaTeX for Scientific & Math Typesetting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+  <!-- Lucide Modern Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- App theme: set before paint to avoid flash -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('gemini_app_theme');
+        var theme = saved === 'dark' || saved === 'light'
+          ? saved
+          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <!-- Design system -->
+  <link rel="stylesheet" href="/static/style.css?v=5.0">
+</head>
+<body class="ascii-light-mode">
+
+  <a href="#heroSection" class="skip-link">Skip to extractor</a>
+
+  <!-- ============================== Top bar ============================== -->
+  <header class="topbar no-print">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <i data-lucide="sparkles"></i>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">Gemini Canvas Extractor</span>
+        </span>
+      </div>
+
+      <div class="topbar-controls">
+        <!-- ASCII diagram theme -->
+        <div class="segmented" role="group" aria-label="ASCII diagram theme">
+          <button
+            id="asciiLightBtn"
+            type="button"
+            class="segmented-btn is-active"
+            title="Light paper ASCII diagrams (dark text)"
+            aria-pressed="true"
+          >
+            <i data-lucide="sun"></i>
+            <span class="segmented-label">ASCII Light</span>
+          </button>
+          <button
+            id="asciiDarkBtn"
+            type="button"
+            class="segmented-btn"
+            title="Dark terminal ASCII diagrams (light text)"
+            aria-pressed="false"
+          >
+            <i data-lucide="moon"></i>
+            <span class="segmented-label">ASCII Dark</span>
+          </button>
+        </div>
+
+        <!-- App light / dark theme -->
+        <button
+          id="themeToggleBtn"
+          type="button"
+          class="icon-btn"
+          title="Toggle light / dark theme"
+          aria-label="Toggle light / dark theme"
+          aria-pressed="false"
+        >
+          <i data-lucide="moon" id="themeToggleIcon"></i>
+          <span class="icon-btn-label" id="themeToggleLabel">Dark</span>
+        </button>
+
+        <!-- Stop server: quiet icon action -->
+        <button
+          id="stopServerBtn"
+          type="button"
+          class="icon-btn"
+          title="Stop the local server process"
+          aria-label="Stop the local server process"
+        >
+          <i data-lucide="power"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================== Main ============================== -->
+  <main class="page">
+
+    <noscript>
+      <div class="alert no-print" role="alert">
+        <div class="alert-body">This app needs JavaScript to extract and render Gemini canvases.</div>
+      </div>
+    </noscript>
+
+    <!-- Hero / URL input -->
+    <section id="heroSection" class="hero no-print" aria-labelledby="heroTitle">
+      <p class="eyebrow">Gemini canvas &rarr; document</p>
+      <h1 id="heroTitle" class="hero-title">Paste a link. Get the document.</h1>
+      <p class="hero-sub">
+        PDF, Word, or print. Math, tables, and diagrams intact.
+      </p>
+    </section>
+
+    <div class="extract-card">
+      <form id="extractForm" class="extract-form" autocomplete="off">
+        <div class="extract-field">
+          <i data-lucide="link" class="field-icon" aria-hidden="true"></i>
+          <label for="urlInput" class="sr-only">Gemini share link</label>
+          <input
+            type="text"
+            id="urlInput"
+            placeholder="Paste Gemini share link…"
+            class="extract-input"
+            required
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            inputmode="url"
+          >
+          <button
+            type="button"
+            id="clearUrlBtn"
+            class="clear-btn is-hidden"
+            aria-label="Clear link"
+          >
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <button type="submit" id="extractBtn" class="btn-primary">
+          <i data-lucide="sparkles"></i>
+          <span>Extract</span>
+        </button>
+      </form>
+
+        <div class="extract-meta">
+          <button
+          id="openHistoryBtn"
+          type="button"
+          class="history-link"
+          title="Open previously extracted documents"
+          aria-haspopup="dialog"
+          aria-expanded="false"
+          aria-controls="historyDrawer"
+        >
+          <i data-lucide="history"></i>
+          <span>History</span>
+          <span id="historyBadge" class="count-badge" aria-label="0 saved documents">0</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Error alert -->
+    <div id="errorAlert" class="no-print is-hidden" role="alert" tabindex="-1">
+      <div class="alert">
+        <i data-lucide="alert-circle" class="alert-icon" aria-hidden="true"></i>
+        <div class="alert-body" id="errorMessage"></div>
+        <button id="dismissErrorBtn" class="alert-close" aria-label="Dismiss error">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading state -->
+    <div id="loadingState" class="no-print is-hidden" aria-live="polite">
+      <div class="loading-card">
+        <div class="loading-spinner" aria-hidden="true">
+          <span class="spinner-ring"></span>
+          <i data-lucide="sparkles" class="spinner-icon"></i>
+        </div>
+        <div>
+          <p class="loading-title">Extracting…</p>
+          <p class="loading-sub">Reading math, tables, diagrams</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================== Results ============================== -->
+    <section id="resultsSection" class="results is-hidden" aria-live="polite">
+      <div id="actionBar" class="actionbar no-print">
+        <div class="actionbar-meta">
+          <h2 id="docTitle" class="doc-title" tabindex="-1">Document title</h2>
+          <div id="docSubtitle" class="doc-sub">0 words • 0 diagrams • 0 tables</div>
+        </div>
+
+        <div class="actionbar-actions">
+          <button id="exportPdfBtn" type="button" class="btn-primary btn-sm" title="Download PDF">
+            <i data-lucide="file-down"></i>
+            <span>Download PDF</span>
+          </button>
+
+          <div class="btn-group" role="group" aria-label="More export options">
+            <button id="exportDocxBtn" type="button" class="btn-secondary btn-sm" title="Download Word document (.docx)">
+              <i data-lucide="file-text"></i>
+              <span>Word (.docx)</span>
+            </button>
+
+            <button id="printDocBtn" type="button" class="btn-ghost btn-sm" title="Print document or save as PDF">
+              <i data-lucide="printer"></i>
+              <span>Print</span>
+            </button>
+
+            <button
+              id="copyMdBtn"
+              type="button"
+              class="btn-ghost btn-sm"
+              title="Copy Markdown content to clipboard"
+              aria-label="Copy Markdown content to clipboard"
+            >
+              <i data-lucide="copy"></i>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <div class="document-card">
+        <div class="print-document-header">
+          <h1 id="printHeaderTitle">Gemini Canvas Artifact</h1>
+          <div id="printHeaderMeta">Exported document</div>
+        </div>
+
+        <div id="renderedContainer" class="markdown-body"></div>
+      </div>
+    </section>
+
+    <!-- How it works (Hattrick-style 01 / 02 / 03) -->
+    <section class="steps no-print" aria-label="How it works">
+      <ol class="steps-list">
+        <li class="step">
+          <span class="step-num" aria-hidden="true">01</span>
+          <p class="step-title">Drop the link</p>
+          <p class="step-text">Canvas or chat links work.</p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">02</span>
+          <p class="step-title">Get the document</p>
+          <p class="step-text">Math, tables, diagrams intact.</p>
+        </li>
+        <li class="step">
+          <span class="step-num" aria-hidden="true">03</span>
+          <p class="step-title">Download or print</p>
+          <p class="step-text">PDF, Word, print.</p>
+        </li>
+      </ol>
+    </section>
+
+    <footer class="footer no-print">
+      <span>Gemini Canvas Extractor — share link in, document out.</span>
+      <span class="footer-dot" aria-hidden="true">•</span>
+      <span class="muted">PDF • DOCX • Print</span>
+    </footer>
+  </main>
+
+  <!-- ============================== History drawer ============================== -->
+  <div id="historyDrawerOverlay" class="drawer-overlay is-hidden" aria-hidden="true"></div>
+
+  <aside id="historyDrawer" class="drawer" role="dialog" aria-modal="true" aria-label="Saved documents" aria-hidden="true" inert>
+    <div class="drawer-head">
+      <div class="drawer-title">
+        <i data-lucide="history" aria-hidden="true"></i>
+        <h3>Saved documents</h3>
+      </div>
+      <button id="closeHistoryBtn" class="icon-btn" aria-label="Close history">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+
+    <div class="drawer-search">
+      <label for="historySearchInput" class="sr-only">Search documents</label>
+      <input
+        type="text"
+        id="historySearchInput"
+        placeholder="Search documents…"
+        class="drawer-input"
+        autocomplete="off"
+      >
+    </div>
+
+    <div id="historyItemsList" class="drawer-list"></div>
+
+    <div class="drawer-foot">
+      <span id="historyItemCountText">0 saved</span>
+      <button id="clearAllHistoryBtn" type="button" class="danger-link">Clear all</button>
+    </div>
+  </aside>
+
+  <!-- Hidden iframe for exact PDF printing -->
+  <iframe id="printIframe" title="Print preview" aria-hidden="true" tabindex="-1" style="position:absolute;width:0;height:0;border:0;"></iframe>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <div class="toast-inner">
+      <i data-lucide="check" aria-hidden="true"></i>
+      <span id="toastMsg">Done</span>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=5.0"></script>
+</body>
+</html>

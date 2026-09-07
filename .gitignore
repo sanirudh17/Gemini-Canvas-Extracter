@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+
+# App-local data (extraction history lives here, per machine)
+data/
+
+# Generated exports — never commit personal documents
+*.pdf
+*.docx
+
+# Screenshots and local captures
+*.png
+*.jpg
+*.jpeg
+
+# Logs and debug artifacts
+*.log
+*.html
+!static/index.html
+rpc_responses.json
+*.txt
+!requirements.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
