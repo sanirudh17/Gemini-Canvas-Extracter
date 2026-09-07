@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/built%20with-FastAPI-333333.svg" alt="Built with FastAPI" />
 </p>
 
-<h1 align="center">Gemini Canvas Extracted</h1>
+<h1 align="center">Gemini Canvas Extracter</h1>
 
 <p align="center">
   <strong>Paste a Gemini canvas share link and get a faithful document.</strong><br/>
@@ -15,7 +15,7 @@
 
 ## Overview
 
-Gemini Canvas Extracted fixes the broken export path out of the Gemini web app, where Google Docs export mangles formatting and print-to-PDF comes out blank. Paste a canvas share link and get a clean document in seconds: Markdown, tables, ASCII diagrams, and math rendered exactly as authored, ready for PDF, Word (.docx), print, or clipboard.
+Gemini Canvas Extracter fixes the broken export path out of the Gemini web app, where Google Docs export mangles formatting and print-to-PDF comes out blank. Paste a canvas share link and get a clean document in seconds: Markdown, tables, ASCII diagrams, and math rendered exactly as authored, ready for PDF, Word (.docx), print, or clipboard.
 
 The app is **local-first by design**. The server runs on your machine, extraction history lives in a local JSON file, and share links are sent to Google's public endpoints only to fetch the shared content — no accounts, no tracking.
 
@@ -117,7 +117,7 @@ Then open **http://127.0.0.1:8000**, paste a public Gemini share link, and hit *
 ## Project Structure
 
 ```
-Gemini-Canvas-Extracted/
+Gemini-Canvas-Extracter/
 ├── app.py               # FastAPI server + API routes
 ├── extractor.py         # Gemini share-link RPC extraction
 ├── pdf_generator.py     # Markdown → HTML → PDF (Playwright Chromium)
