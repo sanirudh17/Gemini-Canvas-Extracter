@@ -35,7 +35,7 @@
   </script>
 
   <!-- Design system -->
-  <link rel="stylesheet" href="/static/style.css?v=5.0">
+  <link rel="stylesheet" href="/static/style.css?v=6.3">
 </head>
 <body class="ascii-light-mode">
 
@@ -234,6 +234,18 @@
               <span>Copy</span>
             </button>
           </div>
+
+          <button
+            id="starDocBtn"
+            type="button"
+            class="btn-ghost btn-sm"
+            title="Star this document"
+            aria-label="Star this document"
+            aria-pressed="false"
+          >
+            <i data-lucide="star" id="starDocIcon"></i>
+            <span id="starDocLabel">Star</span>
+          </button>
         </div>
         </div>
       </div>
@@ -290,6 +302,30 @@
       </button>
     </div>
 
+    <div class="drawer-filter-bar" role="tablist" aria-label="Filter documents">
+      <button
+        id="historyFilterAllBtn"
+        type="button"
+        class="drawer-filter-btn is-active"
+        role="tab"
+        aria-selected="true"
+      >
+        <span>All</span>
+        <span id="historyCountAll" class="count-badge">0</span>
+      </button>
+      <button
+        id="historyFilterStarredBtn"
+        type="button"
+        class="drawer-filter-btn"
+        role="tab"
+        aria-selected="false"
+      >
+        <i data-lucide="star"></i>
+        <span>Starred</span>
+        <span id="historyCountStarred" class="count-badge">0</span>
+      </button>
+    </div>
+
     <div class="drawer-search">
       <label for="historySearchInput" class="sr-only">Search documents</label>
       <input
@@ -310,7 +346,7 @@
   </aside>
 
   <!-- Hidden iframe for exact PDF printing -->
-  <iframe id="printIframe" title="Print preview" aria-hidden="true" tabindex="-1" style="position:absolute;width:0;height:0;border:0;"></iframe>
+  <iframe id="printIframe" title="Print preview" aria-hidden="true" tabindex="-1" style="position:fixed;top:0;left:0;width:0;height:0;border:0;visibility:hidden;pointer-events:none;"></iframe>
 
   <!-- Toast -->
   <div id="toast" class="toast" role="status" aria-live="polite">
@@ -320,6 +356,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=5.0"></script>
+  <script src="/static/app.js?v=6.3"></script>
 </body>
 </html>

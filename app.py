@@ -81,6 +81,7 @@ class HistoryItemRequest(BaseModel):
     table_count: Optional[int] = 0
     content: str
     timestamp: Optional[str] = None
+    starred: Optional[bool] = False
 
 
 @app.post("/api/extract")
@@ -108,7 +109,9 @@ async def extract_url(req: ExtractRequest):
                 "table_count": data.get("table_count", 0),
                 "content": art.get("content", ""),
             }
-            history_manager.add_history_entry(history_item)
+            saved_entry = history_manager.add_history_entry(history_item)
+            data["history_id"] = saved_entry.get("id")
+            data["starred"] = saved_entry.get("starred", False)
             
         return {
             "success": True,
@@ -158,6 +161,27 @@ async def generate_pdf_endpoint(req: PDFExportRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
+@app.post("/api/export-html")
+async def export_html_endpoint(req: PDFExportRequest):
+    """
+    Returns the complete, styled HTML document matching the PDF export for instant, exact print previews.
+    """
+    try:
+        html = pdf_generator.build_export_html(
+            title=req.title,
+            markdown_content=req.content,
+            theme=req.theme or "light",
+            font_size=req.font_size or "medium",
+            include_header=req.include_header if req.include_header is not None else True,
+            ascii_light_theme=bool(req.ascii_light_theme),
+            metadata=req.metadata or {}
+        )
+        return Response(content=html, media_type="text/html; charset=utf-8")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Export HTML failed: {str(e)}")
 
 
 @app.post("/api/generate-docx")
@@ -210,6 +234,20 @@ async def add_history_endpoint(item: HistoryItemRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/history/{item_id}/star")
+async def toggle_star_endpoint(item_id: str):
+    """Toggles the starred/favorite status of a history item."""
+    try:
+        updated = history_manager.toggle_star_history_entry(item_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="History item not found")
+        return {"success": True, "item": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/api/history/{item_id}")
 async def delete_history_endpoint(item_id: str):
     """Deletes a specific history item."""
@@ -247,9 +285,11 @@ async def health_check():
     return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.0"}
 
 
-# Mount static files
+# Mount static files and local KaTeX vendor fonts
+FONTS_DIR = os.path.join(STATIC_DIR, "vendor", "fonts")
+if os.path.exists(FONTS_DIR):
+    app.mount("/fonts", StaticFiles(directory=FONTS_DIR), name="fonts")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():

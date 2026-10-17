@@ -12,7 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentData = null;
   let activeArtifact = null;
   let historyCache = [];
+  let currentHistoryFilter = 'all';
   let asciiTheme = localStorage.getItem('gemini_ascii_theme') || 'light';
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
   // ---------------- DOM ----------------
   const extractForm = document.getElementById('extractForm');
@@ -34,6 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportDocxBtn = document.getElementById('exportDocxBtn');
   const printDocBtn = document.getElementById('printDocBtn');
   const copyMdBtn = document.getElementById('copyMdBtn');
+  const starDocBtn = document.getElementById('starDocBtn');
+  const starDocIcon = document.getElementById('starDocIcon');
+  const starDocLabel = document.getElementById('starDocLabel');
   const renderedContainer = document.getElementById('renderedContainer');
   const printIframe = document.getElementById('printIframe');
 
@@ -47,6 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const historyDrawer = document.getElementById('historyDrawer');
   const historyDrawerOverlay = document.getElementById('historyDrawerOverlay');
   const historyBadge = document.getElementById('historyBadge');
+  const historyFilterAllBtn = document.getElementById('historyFilterAllBtn');
+  const historyFilterStarredBtn = document.getElementById('historyFilterStarredBtn');
+  const historyCountAll = document.getElementById('historyCountAll');
+  const historyCountStarred = document.getElementById('historyCountStarred');
   const historyItemsList = document.getElementById('historyItemsList');
   const historySearchInput = document.getElementById('historySearchInput');
   const historyItemCountText = document.getElementById('historyItemCountText');
@@ -224,7 +233,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
       currentData = json.data;
       displayResults(currentData);
-      fetchHistory();
       showToast('Extracted');
     } catch (err) {
       errorMessage.textContent = err.message;
@@ -363,6 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     renderMarkdownContent(activeArtifact.content);
+    updateActionBarStar();
 
     show(resultsSection);
     resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -371,12 +380,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------------- Export actions (unchanged payloads) ----------------
   function spinnerHtml(label) {
-    return '<div class="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div><span>' + label + '</span>';
+    return '<span class="btn-spinner" aria-hidden="true"></span><span>' + label + '</span>';
   }
+
+  function triggerBlobDownload(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.style.position = 'fixed';
+    a.style.top = '0';
+    a.style.left = '0';
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  let printSavedScrollY = 0;
+  window.addEventListener('beforeprint', () => { printSavedScrollY = window.scrollY; });
+  window.addEventListener('afterprint', () => { window.scrollTo(0, printSavedScrollY); });
 
   exportPdfBtn.addEventListener('click', async () => {
     if (!activeArtifact) return;
     const originalHtml = exportPdfBtn.innerHTML;
+    const savedPdfWidth = exportPdfBtn.getBoundingClientRect().width;
+    const savedPdfHeight = exportPdfBtn.getBoundingClientRect().height;
+    exportPdfBtn.style.width = savedPdfWidth + 'px';
+    exportPdfBtn.style.minWidth = savedPdfWidth + 'px';
+    exportPdfBtn.style.maxWidth = savedPdfWidth + 'px';
+    exportPdfBtn.style.minHeight = savedPdfHeight + 'px';
     exportPdfBtn.disabled = true;
     exportPdfBtn.innerHTML = spinnerHtml('Rendering…');
 
@@ -404,19 +438,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!resp.ok) throw new Error('PDF generation failed on server');
 
       const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const safeTitle = (activeArtifact.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_');
-      a.download = safeTitle + '.pdf';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, safeTitle + '.pdf');
       showToast('PDF downloaded');
     } catch (err) {
       alert('PDF generation error: ' + err.message);
     } finally {
+      exportPdfBtn.style.width = '';
+      exportPdfBtn.style.minWidth = '';
+      exportPdfBtn.style.maxWidth = '';
+      exportPdfBtn.style.minHeight = '';
       exportPdfBtn.disabled = false;
       exportPdfBtn.innerHTML = originalHtml;
       lucide.createIcons();
@@ -426,6 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
   exportDocxBtn.addEventListener('click', async () => {
     if (!activeArtifact) return;
     const originalHtml = exportDocxBtn.innerHTML;
+    const savedDocxWidth = exportDocxBtn.getBoundingClientRect().width;
+    const savedDocxHeight = exportDocxBtn.getBoundingClientRect().height;
+    exportDocxBtn.style.width = savedDocxWidth + 'px';
+    exportDocxBtn.style.minWidth = savedDocxWidth + 'px';
+    exportDocxBtn.style.maxWidth = savedDocxWidth + 'px';
+    exportDocxBtn.style.minHeight = savedDocxHeight + 'px';
     exportDocxBtn.disabled = true;
     exportDocxBtn.innerHTML = spinnerHtml('Generating…');
 
@@ -451,19 +488,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!resp.ok) throw new Error('Word generation failed on server');
 
       const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const safeTitle = (activeArtifact.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_');
-      a.download = safeTitle + '.docx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, safeTitle + '.docx');
       showToast('DOCX downloaded');
     } catch (err) {
       alert('Word export error: ' + err.message);
     } finally {
+      exportDocxBtn.style.width = '';
+      exportDocxBtn.style.minWidth = '';
+      exportDocxBtn.style.maxWidth = '';
+      exportDocxBtn.style.minHeight = '';
       exportDocxBtn.disabled = false;
       exportDocxBtn.innerHTML = originalHtml;
       lucide.createIcons();
@@ -472,10 +506,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   printDocBtn.addEventListener('click', async () => {
     if (!activeArtifact) return;
-
     const originalHtml = printDocBtn.innerHTML;
+    const savedWidth = printDocBtn.getBoundingClientRect().width;
+    const savedHeight = printDocBtn.getBoundingClientRect().height;
+    printDocBtn.style.width = savedWidth + 'px';
+    printDocBtn.style.minWidth = savedWidth + 'px';
+    printDocBtn.style.maxWidth = savedWidth + 'px';
+    printDocBtn.style.minHeight = savedHeight + 'px';
     printDocBtn.disabled = true;
-    printDocBtn.innerHTML = spinnerHtml('Preparing…');
+    printDocBtn.innerHTML = spinnerHtml('Print');
+
+    const savedX = window.scrollX;
+    const savedY = window.scrollY;
 
     try {
       const payload = {
@@ -492,31 +534,55 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       };
 
-      const resp = await fetch('/api/generate-pdf', {
+      const resp = await fetch('/api/export-html', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
+      if (!resp.ok) throw new Error('Failed to prepare document');
+      const printHtml = await resp.text();
 
-        printIframe.onload = () => {
-          try {
-            printIframe.contentWindow.focus();
-            printIframe.contentWindow.print();
-          } catch (e) {
-            window.open(blobUrl, '_blank');
-          }
-        };
-        printIframe.src = blobUrl;
-      } else {
+      let oldIframe = document.getElementById('printIframe');
+      if (oldIframe) oldIframe.remove();
+
+      const iframe = document.createElement('iframe');
+      iframe.id = 'printIframe';
+      iframe.title = 'Print preview';
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.tabIndex = -1;
+      iframe.style.position = 'fixed';
+      iframe.style.top = '0';
+      iframe.style.left = '0';
+      iframe.style.width = '1000px';
+      iframe.style.height = '1000px';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.style.zIndex = '-9999';
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+      iframeDoc.open();
+      iframeDoc.write(printHtml);
+      iframeDoc.close();
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (e) {
         window.print();
       }
-    } catch (e) {
+    } catch (err) {
       window.print();
     } finally {
+      window.scrollTo(savedX, savedY);
+      printDocBtn.style.width = '';
+      printDocBtn.style.minWidth = '';
+      printDocBtn.style.maxWidth = '';
+      printDocBtn.style.minHeight = '';
       printDocBtn.disabled = false;
       printDocBtn.innerHTML = originalHtml;
       lucide.createIcons();
@@ -530,6 +596,23 @@ document.addEventListener('DOMContentLoaded', () => {
       () => showToast('Copy failed — copy manually')
     );
   });
+
+  if (starDocBtn) {
+    starDocBtn.addEventListener('click', async () => {
+      if (!currentData) return;
+      let itemId = currentData.history_id;
+      if (!itemId && currentData.share_id) {
+        const found = historyCache.find((i) => i.share_id === currentData.share_id);
+        if (found) itemId = found.id;
+      }
+      if (itemId) {
+        await toggleStar(itemId);
+      } else {
+        currentData.starred = !currentData.starred;
+        updateActionBarStar();
+      }
+    });
+  }
 
   // ---------------- History drawer ----------------
   let lastDrawerFocus = null;
@@ -590,6 +673,57 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (errorAlert && !errorAlert.classList.contains('is-hidden')) hide(errorAlert);
   });
 
+  function updateActionBarStar() {
+    if (!starDocBtn) return;
+    const isStarred = Boolean(currentData && currentData.starred);
+    starDocBtn.setAttribute('aria-pressed', String(isStarred));
+    starDocBtn.setAttribute('aria-label', isStarred ? 'Unstar this document' : 'Star this document');
+    starDocBtn.setAttribute('title', isStarred ? 'Unstar this document' : 'Star this document');
+    if (isStarred) {
+      starDocBtn.classList.add('is-starred');
+      if (starDocLabel) starDocLabel.textContent = 'Starred';
+    } else {
+      starDocBtn.classList.remove('is-starred');
+      if (starDocLabel) starDocLabel.textContent = 'Star';
+    }
+    const currentStarWidth = starDocBtn.getBoundingClientRect().width;
+    const currentStarHeight = starDocBtn.getBoundingClientRect().height;
+    const previousStarMin = parseFloat(starDocBtn.dataset.minWidth || '0');
+    const nextStarMin = Math.max(previousStarMin, currentStarWidth);
+    starDocBtn.dataset.minWidth = String(nextStarMin);
+    starDocBtn.style.minWidth = nextStarMin + 'px';
+    starDocBtn.style.minHeight = currentStarHeight + 'px';
+  }
+
+  async function toggleStar(itemId) {
+    try {
+      const resp = await fetch('/api/history/' + encodeURIComponent(itemId) + '/star', {
+        method: 'POST'
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        const updated = json.item;
+        const idx = historyCache.findIndex((i) => i.id === itemId);
+        if (idx !== -1) {
+          historyCache[idx].starred = updated.starred;
+        }
+        if (currentData) {
+          if (currentData.history_id === itemId || (updated.share_id && currentData.share_id === updated.share_id)) {
+            currentData.starred = updated.starred;
+            currentData.history_id = itemId;
+            updateActionBarStar();
+          }
+        }
+        applyFilterAndSearch();
+        showToast(updated.starred ? 'Starred' : 'Unstarred');
+      } else {
+        showToast('Could not update star');
+      }
+    } catch (e) {
+      showToast('Could not update star');
+    }
+  }
+
   async function fetchHistory() {
     try {
       const resp = await fetch('/api/history');
@@ -602,28 +736,89 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       historyCache = JSON.parse(localStorage.getItem('gemini_history') || '[]');
     }
-    renderHistoryItems(historyCache);
-    updateHistoryBadge(historyCache.length);
+    applyFilterAndSearch();
   }
 
-  function updateHistoryBadge(count) {
-    if (historyBadge) {
-      historyBadge.textContent = count;
-      historyBadge.setAttribute('aria-label', count + ' saved documents');
+  function getFilteredHistory() {
+    let list = historyCache || [];
+    if (currentHistoryFilter === 'starred') {
+      list = list.filter((item) => Boolean(item.starred));
     }
-    if (historyItemCountText) historyItemCountText.textContent = count + ' saved';
+    const q = historySearchInput ? historySearchInput.value.toLowerCase().trim() : '';
+    if (q) {
+      list = list.filter((item) => (
+        (item.title && item.title.toLowerCase().includes(q)) ||
+        (item.content && item.content.toLowerCase().includes(q))
+      ));
+    }
+    return list;
+  }
+
+  function applyFilterAndSearch() {
+    const filtered = getFilteredHistory();
+    renderHistoryItems(filtered);
+    updateHistoryBadge();
+  }
+
+  function updateHistoryBadge() {
+    const total = historyCache.length;
+    const starredCount = historyCache.filter((i) => Boolean(i.starred)).length;
+    if (historyBadge) {
+      historyBadge.textContent = total;
+      historyBadge.setAttribute('aria-label', total + ' saved documents');
+    }
+    if (historyCountAll) historyCountAll.textContent = total;
+    if (historyCountStarred) historyCountStarred.textContent = starredCount;
+
+    if (historyItemCountText) {
+      if (currentHistoryFilter === 'starred') {
+        historyItemCountText.textContent = starredCount + ' starred';
+      } else {
+        historyItemCountText.textContent = total + ' saved';
+      }
+    }
+  }
+
+  if (historyFilterAllBtn) {
+    historyFilterAllBtn.addEventListener('click', () => {
+      currentHistoryFilter = 'all';
+      historyFilterAllBtn.classList.add('is-active');
+      historyFilterAllBtn.setAttribute('aria-selected', 'true');
+      if (historyFilterStarredBtn) {
+        historyFilterStarredBtn.classList.remove('is-active');
+        historyFilterStarredBtn.setAttribute('aria-selected', 'false');
+      }
+      applyFilterAndSearch();
+    });
+  }
+
+  if (historyFilterStarredBtn) {
+    historyFilterStarredBtn.addEventListener('click', () => {
+      currentHistoryFilter = 'starred';
+      historyFilterStarredBtn.classList.add('is-active');
+      historyFilterStarredBtn.setAttribute('aria-selected', 'true');
+      if (historyFilterAllBtn) {
+        historyFilterAllBtn.classList.remove('is-active');
+        historyFilterAllBtn.setAttribute('aria-selected', 'false');
+      }
+      applyFilterAndSearch();
+    });
   }
 
   function renderHistoryItems(items) {
     historyItemsList.innerHTML = '';
     if (!items || items.length === 0) {
-      historyItemsList.innerHTML = '<div class="drawer-empty">No documents yet. Extract a link.</div>';
+      const emptyMsg = currentHistoryFilter === 'starred'
+        ? 'No starred documents yet. Star important documents to find them quickly.'
+        : 'No documents yet. Extract a link.';
+      historyItemsList.innerHTML = '<div class="drawer-empty">' + emptyMsg + '</div>';
       return;
     }
 
     items.forEach((item) => {
       const card = document.createElement('div');
       card.className = 'history-card';
+      const isStarred = Boolean(item.starred);
       let metaBits = escapeHtml(item.timestamp || '') + ' • ' + (item.word_count || 0).toLocaleString() + ' words';
       if (item.ascii_count) metaBits += ' • ' + item.ascii_count + ' diagrams';
       if (item.table_count) metaBits += ' • ' + item.table_count + ' tables';
@@ -633,9 +828,14 @@ document.addEventListener('DOMContentLoaded', () => {
             '<h4 class="history-card-title">' + escapeHtml(item.title) + '</h4>' +
             '<div class="history-card-meta">' + metaBits + '</div>' +
           '</div>' +
-          '<button type="button" class="history-delete delete-history-btn" data-id="' + item.id + '" aria-label="Remove ' + escapeHtml(item.title) + '">' +
-            '<i data-lucide="trash-2"></i>' +
-          '</button>' +
+          '<div class="history-card-top-actions">' +
+            '<button type="button" class="history-star star-history-btn ' + (isStarred ? 'is-starred' : '') + '" data-id="' + item.id + '" aria-label="' + (isStarred ? 'Unstar ' : 'Star ') + escapeHtml(item.title) + '" aria-pressed="' + (isStarred ? 'true' : 'false') + '" title="' + (isStarred ? 'Unstar' : 'Star') + '">' +
+              '<i data-lucide="star"></i>' +
+            '</button>' +
+            '<button type="button" class="history-delete delete-history-btn" data-id="' + item.id + '" aria-label="Remove ' + escapeHtml(item.title) + '">' +
+              '<i data-lucide="trash-2"></i>' +
+            '</button>' +
+          '</div>' +
         '</div>' +
         '<div class="history-card-foot">' +
           '<button type="button" class="history-open load-history-btn" data-id="' + item.id + '">' +
@@ -646,6 +846,11 @@ document.addEventListener('DOMContentLoaded', () => {
             '<button type="button" class="chip-btn history-docx-btn" data-id="' + item.id + '">DOCX</button>' +
           '</div>' +
         '</div>';
+
+      card.querySelector('.star-history-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await toggleStar(item.id);
+      });
 
       card.querySelector('.load-history-btn').addEventListener('click', () => {
         loadHistoryItemIntoWorkspace(item);
@@ -664,14 +869,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const resp = await fetch('/api/generate-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (resp.ok) {
           const blob = await resp.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = (item.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          window.URL.revokeObjectURL(url);
+          const safeTitle = (item.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_');
+          triggerBlobDownload(blob, safeTitle + '.pdf');
         }
       });
 
@@ -685,22 +884,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const resp = await fetch('/api/generate-docx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (resp.ok) {
           const blob = await resp.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = (item.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_') + '.docx';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          window.URL.revokeObjectURL(url);
+          const safeTitle = (item.title || 'gemini_canvas').replace(/[^a-zA-Z0-9_-]/g, '_');
+          triggerBlobDownload(blob, safeTitle + '.docx');
         }
       });
 
       card.querySelector('.delete-history-btn').addEventListener('click', async () => {
         try { await fetch('/api/history/' + item.id, { method: 'DELETE' }); } catch (e) {}
         historyCache = historyCache.filter((i) => i.id !== item.id);
-        renderHistoryItems(historyCache);
-        updateHistoryBadge(historyCache.length);
+        applyFilterAndSearch();
         showToast('Removed');
       });
 
@@ -711,11 +903,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (historySearchInput) {
-    historySearchInput.addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      if (!q) { renderHistoryItems(historyCache); return; }
-      const filtered = historyCache.filter((item) => (item.title && item.title.toLowerCase().includes(q)));
-      renderHistoryItems(filtered);
+    historySearchInput.addEventListener('input', () => {
+      applyFilterAndSearch();
     });
   }
 
@@ -724,14 +913,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!confirm('Clear all saved documents? This cannot be undone.')) return;
       try { await fetch('/api/history', { method: 'DELETE' }); } catch (e) {}
       historyCache = [];
-      renderHistoryItems([]);
-      updateHistoryBadge(0);
+      applyFilterAndSearch();
       showToast('History cleared');
     });
   }
 
   function loadHistoryItemIntoWorkspace(item) {
     currentData = {
+      history_id: item.id,
+      starred: Boolean(item.starred),
       share_id: item.share_id || 'history',
       title: item.title,
       ascii_count: item.ascii_count || 0,

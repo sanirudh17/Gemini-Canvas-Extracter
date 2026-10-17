@@ -10,8 +10,8 @@ Converts Markdown to authentic Microsoft Word documents with:
 import io
 import os
 import re
+import functools
 from typing import Optional, List, Tuple
-
 import docx
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -35,6 +35,18 @@ if os.path.exists(xslt_path):
         print(f"Warning: Could not initialize MML2OMML.XSL: {e}")
 
 
+@functools.lru_cache(maxsize=4096)
+def _latex_to_omml_xml(clean: str) -> Optional[bytes]:
+    try:
+        mathml = latex2mathml.converter.convert(clean)
+        tree = etree.fromstring(mathml)
+        omml_tree = transform(tree)
+        root = omml_tree.getroot()
+        return etree.tostring(root) if root is not None else None
+    except Exception:
+        return None
+
+
 def latex_to_omml(latex_code: str):
     """
     Converts a LaTeX formula string into a native Word Office Math (OMML) XML element.
@@ -48,13 +60,12 @@ def latex_to_omml(latex_code: str):
         clean = clean.replace(r'\_', '_').replace(r'\*', '*')
         # Normalize double backslashes
         clean = re.sub(r'\\\\', r'\\', clean)
-        mathml = latex2mathml.converter.convert(clean)
-        tree = etree.fromstring(mathml)
-        omml_tree = transform(tree)
-        return omml_tree.getroot()
+        xml_bytes = _latex_to_omml_xml(clean)
+        if xml_bytes is not None:
+            return etree.fromstring(xml_bytes)
+        return None
     except Exception:
         return None
-
 
 def fallback_math_text(math_code: str) -> str:
     """

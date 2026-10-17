@@ -35,8 +35,20 @@ def add_history_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     entry["timestamp"] = entry.get("timestamp") or time.strftime("%b %d, %Y %I:%M %p")
     entry["created_at"] = entry.get("created_at") or time.time()
     
-    # Filter out existing with same id or same share_id
+    # Check if previously starred
+    was_starred = False
     share_id = entry.get("share_id")
+    for old_item in history:
+        if (share_id and old_item.get("share_id") == share_id) or old_item.get("id") == entry_id:
+            if old_item.get("starred"):
+                was_starred = True
+            break
+    if "starred" not in entry:
+        entry["starred"] = was_starred
+    else:
+        entry["starred"] = bool(entry["starred"])
+    
+    # Filter out existing with same id or same share_id
     if share_id:
         history = [item for item in history if item.get("share_id") != share_id]
     else:
@@ -52,6 +64,20 @@ def add_history_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         json.dump(history, f, indent=2, ensure_ascii=False)
         
     return entry
+
+def toggle_star_history_entry(entry_id: str) -> Optional[Dict[str, Any]]:
+    ensure_data_dir()
+    history = get_history()
+    target = None
+    for item in history:
+        if item.get("id") == entry_id:
+            item["starred"] = not item.get("starred", False)
+            target = item
+            break
+    if target is not None:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+    return target
 
 def delete_history_entry(entry_id: str) -> bool:
     ensure_data_dir()

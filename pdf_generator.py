@@ -11,6 +11,21 @@ import tempfile
 import subprocess
 from typing import Optional
 
+_VENDOR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "vendor")
+
+def _read_vendor_asset(filename: str) -> str:
+    p = os.path.join(_VENDOR_DIR, filename)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            pass
+    return ""
+
+_CACHED_MARKED_JS = _read_vendor_asset("marked.min.js")
+_CACHED_KATEX_JS = _read_vendor_asset("katex.min.js")
+_CACHED_KATEX_CSS = _read_vendor_asset("katex.min.css")
 def build_export_html(
     title: str,
     markdown_content: str,
@@ -93,18 +108,23 @@ def build_export_html(
         </div>
         """
 
+    safe_markdown_json = json.dumps(markdown_content).replace("</", "<\\/").replace("<!--", "<\\!--")
+    if _CACHED_MARKED_JS and _CACHED_KATEX_JS and _CACHED_KATEX_CSS:
+        vendor_scripts_html = f"""<style>{_CACHED_KATEX_CSS}</style>
+<script>{_CACHED_MARKED_JS}</script>
+<script>{_CACHED_KATEX_JS}</script>"""
+    else:
+        vendor_scripts_html = """<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>"""
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+{vendor_scripts_html}
 <style>
   @page {{
     size: A4 portrait;
@@ -223,7 +243,8 @@ def build_export_html(
 {meta_html}
 <div id="content"></div>
 <script>
-  const rawMarkdown = {json.dumps(markdown_content)};
+(function() {{
+  const rawMarkdown = {safe_markdown_json};
 
   function renderRobustMarkdown(markdownText) {{
     const codeBlocks = [];
@@ -289,7 +310,11 @@ def build_export_html(
     return html;
   }}
 
-  document.getElementById('content').innerHTML = renderRobustMarkdown(rawMarkdown);
+  const container = document.getElementById('content');
+  if (container) {{
+    container.innerHTML = renderRobustMarkdown(rawMarkdown);
+  }}
+}})();
 </script>
 </body>
 </html>
