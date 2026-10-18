@@ -1,10 +1,4 @@
 ﻿{
-  "version": 2,
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "{static/**,index.html}"
-    }
-  },
   "rewrites": [
     {
       "source": "/(.*)",

@@ -1,3 +1,4 @@
+﻿from pathlib import Path
 """
 FastAPI Server for Gemini Canvas Artifact Extractor & Multi-Format Exporter
 Supports PDF (Chromium High-Res), Word Document (.docx), Markdown, History Tracking & Print Optimization.
@@ -308,3 +309,5 @@ if __name__ == "__main__":
     import uvicorn
     print("Starting Gemini Canvas Extractor server on http://localhost:8000 ...")
     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+
+
