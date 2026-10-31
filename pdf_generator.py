@@ -44,6 +44,9 @@ def build_export_html(
     }
     base_font_size = font_size_map.get(font_size, "14px")
     
+    re_display_math = r'/(?<![\$\\])\$\$([\s\S]*?)\$\$/g'
+    re_inline_math = r'/(?<!\\)\$((?:\\\$|[^\$\n\r])+?)(?<!\\)\$/g'
+    
     # ASCII diagram styling based on ascii_light_theme
     if ascii_light_theme:
         ascii_css = "pre { background: #f8fafc !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; border-left: 3px solid #3b82f6 !important; }"
@@ -265,11 +268,23 @@ def build_export_html(
       return id;
     }});
     
+    function cleanMath(math) {{
+      let m = math.trim();
+      if (m.endsWith('\\\\')) {{
+        m = m + '$';
+      }}
+      m = m.replace(/\\\\text\\{{([^{{}}]*)\\}}/g, (match, inner) => {{
+        return '\\\\text{{' + inner.replace(/(?<!\\\\)&/g, '\\\\&') + '}}';
+      }});
+      return m;
+    }}
+    
     // 3. Protect display math ($$...$$)
-    text = text.replace(/\\$\\$([\\s\\S]*?)\\$\\$/g, (match, math) => {{
+    text = text.replace({re_display_math}, (match, math) => {{
       const id = `%%KATEX_BLOCK_${{mathBlocks.length}}%%`;
+      const cleaned = cleanMath(math);
       try {{
-        const rendered = katex.renderToString(math.trim(), {{ displayMode: true, throwOnError: false }});
+        const rendered = katex.renderToString(cleaned, {{ displayMode: true, throwOnError: false }});
         mathBlocks.push({{ id, html: `<div class="katex-display-wrapper">${{rendered}}</div>` }});
       }} catch (e) {{
         mathBlocks.push({{ id, html: `<div class="katex-display-wrapper katex-error">${{math}}</div>` }});
@@ -277,12 +292,13 @@ def build_export_html(
       return id;
     }});
     
-    // 4. Protect inline math ($...$)
-    text = text.replace(/\\$([^\\$\\n\\r]+?)\\$/g, (match, math) => {{
+    // 4. Protect inline math ($...$) with escaped dollar support
+    text = text.replace({re_inline_math}, (match, math) => {{
       if (!math.trim()) return match;
       const id = `%%KATEX_INLINE_${{mathBlocks.length}}%%`;
+      const cleaned = cleanMath(math);
       try {{
-        const rendered = katex.renderToString(math.trim(), {{ displayMode: false, throwOnError: false }});
+        const rendered = katex.renderToString(cleaned, {{ displayMode: false, throwOnError: false }});
         mathBlocks.push({{ id, html: rendered }});
       }} catch (e) {{
         mathBlocks.push({{ id, html: `<span>${{math}}</span>` }});

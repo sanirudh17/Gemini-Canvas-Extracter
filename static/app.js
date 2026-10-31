@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const starDocBtn = document.getElementById('starDocBtn');
   const starDocIcon = document.getElementById('starDocIcon');
   const starDocLabel = document.getElementById('starDocLabel');
+  const noteDocBtn = document.getElementById('noteDocBtn');
+  const noteDocLabel = document.getElementById('noteDocLabel');
   const renderedContainer = document.getElementById('renderedContainer');
   const printIframe = document.getElementById('printIframe');
 
@@ -233,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       currentData = json.data;
       displayResults(currentData);
+      await fetchHistory();
       showToast('Extracted');
     } catch (err) {
       errorMessage.textContent = err.message;
@@ -264,10 +267,22 @@ document.addEventListener('DOMContentLoaded', () => {
       return id;
     });
 
-    text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match, math) => {
+    function cleanMath(math) {
+      let m = math.trim();
+      if (m.endsWith('\\')) {
+        m = m + '$';
+      }
+      m = m.replace(/\\text\{([^{}]*)\}/g, (match, inner) => {
+        return '\\text{' + inner.replace(/(?<!\\)&/g, '\\&') + '}';
+      });
+      return m;
+    }
+
+    text = text.replace(/(?<![\$\\])\$\$([\s\S]*?)\$\$/g, (match, math) => {
       const id = '%%KATEX_BLOCK_' + mathBlocks.length + '%%';
+      const cleaned = cleanMath(math);
       try {
-        const rendered = katex.renderToString(math.trim(), { displayMode: true, throwOnError: false });
+        const rendered = katex.renderToString(cleaned, { displayMode: true, throwOnError: false });
         mathBlocks.push({ id, html: '<div class="katex-display-wrapper">' + rendered + '</div>' });
       } catch (e) {
         mathBlocks.push({ id, html: '<div class="katex-display-wrapper katex-error">' + escapeHtml(math) + '</div>' });
@@ -275,11 +290,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return id;
     });
 
-    text = text.replace(/\$([^\$\n\r]+?)\$/g, (match, math) => {
+    text = text.replace(/(?<!\\)\$((?:\\\$|[^\$\n\r])+?)(?<!\\)\$/g, (match, math) => {
       if (!math.trim()) return match;
       const id = '%%KATEX_INLINE_' + mathBlocks.length + '%%';
+      const cleaned = cleanMath(math);
       try {
-        const rendered = katex.renderToString(math.trim(), { displayMode: false, throwOnError: false });
+        const rendered = katex.renderToString(cleaned, { displayMode: false, throwOnError: false });
         mathBlocks.push({ id, html: rendered });
       } catch (e) {
         mathBlocks.push({ id, html: '<span>' + escapeHtml(math) + '</span>' });
@@ -614,6 +630,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (noteDocBtn) {
+    noteDocBtn.addEventListener('click', async () => {
+      if (!currentData) return;
+      let itemId = currentData.history_id;
+      if (!itemId && currentData.share_id) {
+        const found = historyCache.find((i) => i.share_id === currentData.share_id);
+        if (found) itemId = found.id;
+      }
+      if (!itemId) return;
+      const currentNote = currentData.notes || '';
+      const promptText = currentNote ? 'Edit note for this document:' : 'Add a short note for this document:';
+      const userNote = prompt(promptText, currentNote);
+      if (userNote !== null) {
+        await saveNote(itemId, userNote);
+      }
+    });
+  }
+
   // ---------------- History drawer ----------------
   let lastDrawerFocus = null;
 
@@ -629,6 +663,11 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAnimationFrame(() => historyDrawer.classList.add('open'));
     historyDrawer.setAttribute('aria-hidden', 'false');
     historyDrawer.removeAttribute('inert');
+    if (currentHistoryFilter === 'starred') {
+      historyDrawer.classList.add('is-starred-view');
+    } else {
+      historyDrawer.classList.remove('is-starred-view');
+    }
     if (openHistoryBtn) openHistoryBtn.setAttribute('aria-expanded', 'true');
     fetchHistory();
     if (closeHistoryBtn) closeHistoryBtn.focus({ preventScroll: true });
@@ -682,9 +721,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isStarred) {
       starDocBtn.classList.add('is-starred');
       if (starDocLabel) starDocLabel.textContent = 'Starred';
+      if (noteDocBtn) {
+        noteDocBtn.classList.remove('is-hidden');
+        const hasNotes = Boolean(currentData && currentData.notes && currentData.notes.trim());
+        if (hasNotes) {
+          noteDocBtn.classList.add('has-note');
+          if (noteDocLabel) noteDocLabel.textContent = 'Note';
+          noteDocBtn.setAttribute('title', 'Note: ' + currentData.notes);
+        } else {
+          noteDocBtn.classList.remove('has-note');
+          if (noteDocLabel) noteDocLabel.textContent = 'Add note';
+          noteDocBtn.setAttribute('title', 'Add note to this starred document');
+        }
+      }
     } else {
       starDocBtn.classList.remove('is-starred');
       if (starDocLabel) starDocLabel.textContent = 'Star';
+      if (noteDocBtn) {
+        noteDocBtn.classList.add('is-hidden');
+      }
     }
     const currentStarWidth = starDocBtn.getBoundingClientRect().width;
     const currentStarHeight = starDocBtn.getBoundingClientRect().height;
@@ -703,24 +758,61 @@ document.addEventListener('DOMContentLoaded', () => {
       if (resp.ok) {
         const json = await resp.json();
         const updated = json.item;
-        const idx = historyCache.findIndex((i) => i.id === itemId);
+        const idx = historyCache.findIndex((i) => i.id === itemId || (updated.share_id && i.share_id === updated.share_id));
         if (idx !== -1) {
           historyCache[idx].starred = updated.starred;
+          if (updated.notes !== undefined) historyCache[idx].notes = updated.notes;
+        } else {
+          historyCache.unshift(updated);
         }
         if (currentData) {
           if (currentData.history_id === itemId || (updated.share_id && currentData.share_id === updated.share_id)) {
             currentData.starred = updated.starred;
-            currentData.history_id = itemId;
+            currentData.history_id = updated.id || itemId;
+            if (updated.notes !== undefined) currentData.notes = updated.notes;
             updateActionBarStar();
           }
         }
         applyFilterAndSearch();
+        updateHistoryBadge();
         showToast(updated.starred ? 'Starred' : 'Unstarred');
       } else {
         showToast('Could not update star');
       }
     } catch (e) {
       showToast('Could not update star');
+    }
+  }
+
+  async function saveNote(itemId, noteText) {
+    try {
+      const resp = await fetch('/api/history/' + encodeURIComponent(itemId) + '/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: noteText })
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        const updated = json.item;
+        const idx = historyCache.findIndex((i) => i.id === itemId || (updated.share_id && i.share_id === updated.share_id));
+        if (idx !== -1) {
+          historyCache[idx].notes = updated.notes;
+        } else {
+          historyCache.unshift(updated);
+        }
+        if (currentData) {
+          if (currentData.history_id === itemId || (updated.share_id && currentData.share_id === updated.share_id)) {
+            currentData.notes = updated.notes;
+            updateActionBarStar();
+          }
+        }
+        applyFilterAndSearch();
+        showToast(updated.notes ? 'Note saved' : 'Note cleared');
+      } else {
+        showToast('Could not save note');
+      }
+    } catch (e) {
+      showToast('Could not save note');
     }
   }
 
@@ -748,7 +840,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (q) {
       list = list.filter((item) => (
         (item.title && item.title.toLowerCase().includes(q)) ||
-        (item.content && item.content.toLowerCase().includes(q))
+        (item.content && item.content.toLowerCase().includes(q)) ||
+        (item.notes && item.notes.toLowerCase().includes(q))
       ));
     }
     return list;
@@ -782,6 +875,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (historyFilterAllBtn) {
     historyFilterAllBtn.addEventListener('click', () => {
       currentHistoryFilter = 'all';
+      if (historyDrawer) historyDrawer.classList.remove('is-starred-view');
       historyFilterAllBtn.classList.add('is-active');
       historyFilterAllBtn.setAttribute('aria-selected', 'true');
       if (historyFilterStarredBtn) {
@@ -795,6 +889,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (historyFilterStarredBtn) {
     historyFilterStarredBtn.addEventListener('click', () => {
       currentHistoryFilter = 'starred';
+      if (historyDrawer) historyDrawer.classList.add('is-starred-view');
       historyFilterStarredBtn.classList.add('is-active');
       historyFilterStarredBtn.setAttribute('aria-selected', 'true');
       if (historyFilterAllBtn) {
@@ -818,23 +913,54 @@ document.addEventListener('DOMContentLoaded', () => {
     items.forEach((item) => {
       const card = document.createElement('div');
       card.className = 'history-card';
+      card.dataset.id = item.id;
       const isStarred = Boolean(item.starred);
+      const hasNotes = Boolean(item.notes && item.notes.trim());
+
       let metaBits = escapeHtml(item.timestamp || '') + ' • ' + (item.word_count || 0).toLocaleString() + ' words';
       if (item.ascii_count) metaBits += ' • ' + item.ascii_count + ' diagrams';
       if (item.table_count) metaBits += ' • ' + item.table_count + ' tables';
+
+      let noteChipHtml = '';
+      if (hasNotes) {
+        noteChipHtml = '<div class="history-note-chip" title="Click to edit note"><i data-lucide="sticky-note"></i><span class="note-snippet">' + escapeHtml(item.notes) + '</span></div>';
+      } else if (isStarred) {
+        noteChipHtml = '<button type="button" class="history-add-note-action add-note-trigger"><i data-lucide="plus"></i><span>Add note</span></button>';
+      }
+
+      let hoverPanelHtml = '';
+      if (hasNotes) {
+        hoverPanelHtml =
+          '<div class="history-hover-note-panel" title="Click to edit note">' +
+            '<div class="history-hover-note-header"><span>Note</span><span>Click to edit</span></div>' +
+            '<div class="history-hover-note-text">' + escapeHtml(item.notes) + '</div>' +
+          '</div>';
+      }
+
       card.innerHTML =
         '<div class="history-card-top">' +
           '<div style="min-width:0;flex:1">' +
             '<h4 class="history-card-title">' + escapeHtml(item.title) + '</h4>' +
             '<div class="history-card-meta">' + metaBits + '</div>' +
+            noteChipHtml +
           '</div>' +
           '<div class="history-card-top-actions">' +
+            (isStarred ? '<button type="button" class="history-note-btn note-btn-trigger ' + (hasNotes ? 'has-note' : '') + '" title="' + (hasNotes ? 'Edit note' : 'Add note') + '" aria-label="' + (hasNotes ? 'Edit note' : 'Add note') + '"><i data-lucide="sticky-note"></i></button>' : '') +
             '<button type="button" class="history-star star-history-btn ' + (isStarred ? 'is-starred' : '') + '" data-id="' + item.id + '" aria-label="' + (isStarred ? 'Unstar ' : 'Star ') + escapeHtml(item.title) + '" aria-pressed="' + (isStarred ? 'true' : 'false') + '" title="' + (isStarred ? 'Unstar' : 'Star') + '">' +
               '<i data-lucide="star"></i>' +
             '</button>' +
             '<button type="button" class="history-delete delete-history-btn" data-id="' + item.id + '" aria-label="Remove ' + escapeHtml(item.title) + '">' +
               '<i data-lucide="trash-2"></i>' +
             '</button>' +
+          '</div>' +
+        '</div>' +
+        hoverPanelHtml +
+        '<div class="history-note-editor is-hidden" id="editor_' + item.id + '">' +
+          '<input type="text" class="history-note-input" placeholder="Add a short note… (e.g. CAT-2 Q15 key proof)" maxlength="200" value="' + escapeHtml(item.notes || '') + '">' +
+          '<div class="history-note-actions">' +
+            '<button type="button" class="btn-primary btn-xs save-note-action">Save</button>' +
+            '<button type="button" class="btn-ghost btn-xs cancel-note-action">Cancel</button>' +
+            (hasNotes ? '<button type="button" class="btn-ghost btn-xs clear-note-action" style="color:var(--danger)">Clear</button>' : '') +
           '</div>' +
         '</div>' +
         '<div class="history-card-foot">' +
@@ -846,6 +972,75 @@ document.addEventListener('DOMContentLoaded', () => {
             '<button type="button" class="chip-btn history-docx-btn" data-id="' + item.id + '">DOCX</button>' +
           '</div>' +
         '</div>';
+
+      const editorEl = card.querySelector('#editor_' + item.id);
+      const noteInput = card.querySelector('.history-note-input');
+
+      function openNoteEditor() {
+        if (!editorEl) return;
+        show(editorEl);
+        if (noteInput) {
+          noteInput.focus();
+          noteInput.select();
+        }
+      }
+
+      function closeNoteEditor() {
+        if (!editorEl) return;
+        hide(editorEl);
+      }
+
+      const noteBtn = card.querySelector('.note-btn-trigger');
+      if (noteBtn) noteBtn.addEventListener('click', (e) => { e.stopPropagation(); openNoteEditor(); });
+
+      const addNoteAction = card.querySelector('.add-note-trigger');
+      if (addNoteAction) addNoteAction.addEventListener('click', (e) => { e.stopPropagation(); openNoteEditor(); });
+
+      const chipEl = card.querySelector('.history-note-chip');
+      if (chipEl) chipEl.addEventListener('click', (e) => { e.stopPropagation(); openNoteEditor(); });
+
+      const hoverPanel = card.querySelector('.history-hover-note-panel');
+      if (hoverPanel) hoverPanel.addEventListener('click', (e) => { e.stopPropagation(); openNoteEditor(); });
+
+      const saveBtn = card.querySelector('.save-note-action');
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const val = noteInput ? noteInput.value.trim() : '';
+          await saveNote(item.id, val);
+          closeNoteEditor();
+        });
+      }
+
+      const cancelBtn = card.querySelector('.cancel-note-action');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeNoteEditor();
+        });
+      }
+
+      const clearBtn = card.querySelector('.clear-note-action');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await saveNote(item.id, '');
+          closeNoteEditor();
+        });
+      }
+
+      if (noteInput) {
+        noteInput.addEventListener('keydown', async (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            await saveNote(item.id, noteInput.value.trim());
+            closeNoteEditor();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeNoteEditor();
+          }
+        });
+      }
 
       card.querySelector('.star-history-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -922,6 +1117,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentData = {
       history_id: item.id,
       starred: Boolean(item.starred),
+      notes: item.notes || '',
       share_id: item.share_id || 'history',
       title: item.title,
       ascii_count: item.ascii_count || 0,

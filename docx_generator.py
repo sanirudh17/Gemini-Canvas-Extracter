@@ -56,8 +56,11 @@ def latex_to_omml(latex_code: str):
         return None
     try:
         clean = latex_code.strip()
+        if clean.endswith('\\'):
+            clean = clean + '$'
         # Clean common markdown artifacts inside math
         clean = clean.replace(r'\_', '_').replace(r'\*', '*')
+        clean = re.sub(r'\\text\{([^{}]*)\}', lambda m: r'\text{' + re.sub(r'(?<!\\)&', r'\&', m.group(1)) + '}', clean)
         # Normalize double backslashes
         clean = re.sub(r'\\\\', r'\\', clean)
         xml_bytes = _latex_to_omml_xml(clean)
@@ -72,10 +75,15 @@ def fallback_math_text(math_code: str) -> str:
     High-fidelity Unicode fallback for mathematical formulas when OMML is not applicable.
     """
     s = math_code.strip()
+    if s.endswith('\\'):
+        s = s + '$'
     s = s.replace(r'\_', '_').replace(r'\*', '*')
+    s = s.replace(r'\text{\$}', '$').replace(r'\$', '$')
     
     # Common LaTeX symbol replacements
     replacements = [
+        (r'\ast', '∗'),
+        (r'\sum', '∑'),
         (r'\le', '≤'), (r'\leq', '≤'),
         (r'\ge', '≥'), (r'\geq', '≥'),
         (r'\neq', '≠'), (r'\ne', '≠'),
@@ -177,8 +185,8 @@ def add_inline_formatted_text(
     Parses inline markdown (**bold**, *italic*, `code`, and $math$) and adds
     corresponding native runs and OMML math elements to the paragraph.
     """
-    # Tokenize text by markdown delimiters
-    tokens = re.split(r'(\*\*[^*]+?\*\*|\*[^*]+?\*|`[^`]+?`|\$[^\$]+?\$)', text)
+    # Tokenize text by markdown delimiters with escaped dollar support in math
+    tokens = re.split(r'(\*\*[^*]+?\*\*|\*[^*]+?\*|`[^`]+?`|(?<!\\)\$(?:\\\$|[^\$\n\r])+?(?<!\\)\$)', text)
 
     for token in tokens:
         if not token:

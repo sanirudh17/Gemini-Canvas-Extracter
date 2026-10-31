@@ -213,13 +213,14 @@ svg.lucide, [data-lucide] { flex-shrink: 0; }
 .history-link svg { width: 14px; height: 14px; color: var(--text-2); }
 .history-link:hover { background: var(--soft); text-decoration: none; }
 
-/* THE badge: perfectly centered count pill (grid + optical nudge —
-   tabular digits sit high in the em box, so 1px top padding re-centers). */
-.count-badge {
-  display: inline-grid;
-  place-items: center;
+/* THE badge: perfectly centered count pill (inline-flex + tabular digits + optical centering) */
+.count-badge,
+.drawer-filter-btn .count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 20px;
-  height: 20px;
+  height: 18px;
   flex-shrink: 0;
   padding: 1px 6px 0;
   border-radius: 999px;
@@ -728,10 +729,10 @@ body.ascii-light-mode .code-block-wrapper:not(.theme-dark) .mini-btn:hover {
 .drawer-title svg { width: 15px; height: 15px; color: var(--text-2); }
 .drawer-title h3 { font-size: 13.5px; font-weight: 800; }
 
-.drawer-search { padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.drawer-search { padding: 12px 14px; border-bottom: 1px solid var(--border); background: transparent; }
 .drawer-input {
   width: 100%; padding: 9px 12px; min-height: 38px;
-  background: var(--surface-2); border: 1px solid var(--border);
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text); font-family: var(--font-mono); font-size: 12px;
 }
@@ -754,16 +755,23 @@ body.ascii-light-mode .code-block-wrapper:not(.theme-dark) .mini-btn:hover {
 .drawer-filter-bar {
   display: flex; align-items: center; gap: 6px;
   padding: 10px 14px;
-  background: var(--surface);
+  background: transparent;
   border-bottom: 1px solid var(--border);
 }
 .drawer-filter-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--border); background: var(--surface-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--border); background: var(--surface);
   color: var(--text-2); font-size: 12px; font-weight: 600;
   padding: 5px 11px; border-radius: 999px; min-height: 30px;
+  line-height: 1;
   cursor: pointer;
   transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out;
+}
+.drawer-filter-btn > span:not(.count-badge) {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  transform: translateY(0.5px);
 }
 .drawer-filter-btn svg { width: 13px; height: 13px; }
 .drawer-filter-btn:hover { color: var(--text); border-color: var(--border-strong); }
@@ -790,6 +798,207 @@ body.ascii-light-mode .code-block-wrapper:not(.theme-dark) .mini-btn:hover {
 #starDocBtn.is-starred { color: var(--ink); }
 #starDocBtn.is-starred svg { fill: currentColor; }
 
+#noteDocBtn.has-note { color: var(--ink); font-weight: 600; }
+#noteDocBtn.has-note svg { stroke-width: 2.3; fill: var(--soft); }
+
+.history-note-btn {
+  border: 0; background: transparent; color: var(--muted);
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: color 150ms ease-out, transform 120ms ease-out;
+}
+.history-note-btn:hover { color: var(--text); transform: scale(1.1); }
+.history-note-btn.has-note { color: var(--ink); }
+.history-note-btn svg { width: 15px; height: 15px; }
+
+.history-note-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1;
+  box-sizing: border-box;
+  color: var(--text-2);
+  max-width: 100%;
+  cursor: pointer;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out;
+}
+.history-note-chip:hover {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.history-note-chip svg {
+  width: 11.5px;
+  height: 11.5px;
+  color: var(--muted);
+  flex-shrink: 0;
+  margin-top: -0.5px;
+}
+.history-note-chip .note-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-body);
+  line-height: 1;
+  transform: translateY(0.5px);
+}
+
+.history-add-note-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  box-sizing: border-box;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 120ms ease-out;
+}
+.history-add-note-action:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface-2);
+}
+.history-add-note-action svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  margin-top: -0.5px;
+}
+.history-add-note-action span {
+  display: inline-block;
+  line-height: 1;
+  transform: translateY(0.5px);
+}
+
+/* In Starred tab: hover reveals full note panel with smooth subtle fade */
+.history-hover-note-panel {
+  display: none;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+  word-break: break-word;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+.history-hover-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.history-hover-note-text {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* Hover reveal specifically in Starred tab */
+.drawer.is-starred-view .history-card:hover .history-hover-note-panel {
+  display: block;
+}
+.drawer.is-starred-view .history-card:hover .history-note-chip {
+  display: none;
+}
+
+/* Inline note editor on history card */
+.history-note-editor {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-note-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 9px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 140ms ease-out;
+}
+.history-note-input:focus {
+  border-color: var(--ink);
+}
+.history-note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.btn-xs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  font-size: 11px;
+  line-height: 1;
+  min-height: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  border-radius: 5px;
+}
+
+/* Workspace action bar note popover */
+.actionbar-actions { position: relative; }
+.workspace-note-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace-note-popover h5 {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+
 .history-delete {
   border: 0; background: transparent; color: var(--muted);
   width: 36px; height: 36px; min-width: 36px; min-height: 36px; border-radius: 7px;
@@ -807,7 +1016,13 @@ body.ascii-light-mode .code-block-wrapper:not(.theme-dark) .mini-btn:hover {
   border: 0; background: none; padding: 4px 2px;
   color: var(--text); font-size: 12px; font-weight: 700;
   display: inline-flex; align-items: center; gap: 5px;
+  line-height: 1;
   cursor: pointer;
+}
+.history-open span {
+  display: inline-block;
+  line-height: 1;
+  transform: translateY(0.5px);
 }
 .history-open svg { width: 12px; height: 12px; }
 .history-open:hover { text-decoration: underline; }
@@ -826,7 +1041,7 @@ body.ascii-light-mode .code-block-wrapper:not(.theme-dark) .mini-btn:hover {
 .drawer-foot {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px; border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: transparent;
   font-size: 12px; color: var(--muted);
   font-variant-numeric: tabular-nums;
 }

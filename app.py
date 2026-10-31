@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 """
 FastAPI Server for Gemini Canvas Artifact Extractor & Multi-Format Exporter
 Supports PDF (Chromium High-Res), Word Document (.docx), Markdown, History Tracking & Print Optimization.
@@ -82,7 +82,12 @@ class HistoryItemRequest(BaseModel):
     table_count: Optional[int] = 0
     content: str
     timestamp: Optional[str] = None
-    starred: Optional[bool] = False
+    starred: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class HistoryNoteRequest(BaseModel):
+    notes: str = ""
 
 
 @app.post("/api/extract")
@@ -113,6 +118,7 @@ async def extract_url(req: ExtractRequest):
             saved_entry = history_manager.add_history_entry(history_item)
             data["history_id"] = saved_entry.get("id")
             data["starred"] = saved_entry.get("starred", False)
+            data["notes"] = saved_entry.get("notes", "")
             
         return {
             "success": True,
@@ -240,6 +246,20 @@ async def toggle_star_endpoint(item_id: str):
     """Toggles the starred/favorite status of a history item."""
     try:
         updated = history_manager.toggle_star_history_entry(item_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="History item not found")
+        return {"success": True, "item": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/history/{item_id}/notes")
+async def update_notes_endpoint(item_id: str, req: HistoryNoteRequest):
+    """Updates custom user notes for a history item."""
+    try:
+        updated = history_manager.update_history_notes(item_id, req.notes)
         if not updated:
             raise HTTPException(status_code=404, detail="History item not found")
         return {"success": True, "item": updated}

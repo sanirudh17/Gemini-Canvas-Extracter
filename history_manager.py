@@ -35,18 +35,27 @@ def add_history_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     entry["timestamp"] = entry.get("timestamp") or time.strftime("%b %d, %Y %I:%M %p")
     entry["created_at"] = entry.get("created_at") or time.time()
     
-    # Check if previously starred
+    # Check if previously starred or has existing notes
     was_starred = False
+    existing_notes = ""
     share_id = entry.get("share_id")
     for old_item in history:
         if (share_id and old_item.get("share_id") == share_id) or old_item.get("id") == entry_id:
             if old_item.get("starred"):
                 was_starred = True
+            if old_item.get("notes"):
+                existing_notes = old_item.get("notes")
             break
-    if "starred" not in entry:
+            
+    if entry.get("starred") is None:
         entry["starred"] = was_starred
     else:
         entry["starred"] = bool(entry["starred"])
+        
+    if entry.get("notes") is None:
+        entry["notes"] = existing_notes
+    else:
+        entry["notes"] = str(entry.get("notes", "")).strip()
     
     # Filter out existing with same id or same share_id
     if share_id:
@@ -57,8 +66,10 @@ def add_history_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     # Prepend latest
     history.insert(0, entry)
     
-    # Keep max 50 items
-    history = history[:50]
+    # Allow history to grow comfortably beyond 50 entries (capped at 1000 to prevent unbounded growth)
+    MAX_HISTORY = 1000
+    if len(history) > MAX_HISTORY:
+        history = history[:MAX_HISTORY]
     
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
@@ -70,8 +81,23 @@ def toggle_star_history_entry(entry_id: str) -> Optional[Dict[str, Any]]:
     history = get_history()
     target = None
     for item in history:
-        if item.get("id") == entry_id:
+        if item.get("id") == entry_id or (item.get("share_id") and item.get("share_id") == entry_id):
             item["starred"] = not item.get("starred", False)
+            target = item
+            break
+    if target is not None:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+    return target
+
+def update_history_notes(entry_id: str, notes: str) -> Optional[Dict[str, Any]]:
+    ensure_data_dir()
+    history = get_history()
+    target = None
+    clean_notes = str(notes or "").strip()
+    for item in history:
+        if item.get("id") == entry_id or (item.get("share_id") and item.get("share_id") == entry_id):
+            item["notes"] = clean_notes
             target = item
             break
     if target is not None:
