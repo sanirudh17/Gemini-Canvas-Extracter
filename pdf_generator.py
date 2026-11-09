@@ -382,9 +382,20 @@ async def render_pdf_from_html(
         ])
         
         if proc.returncode != 0:
-            error_msg = proc.stderr or proc.stdout or "Unknown error"
-            raise RuntimeError(f"PDF generator subprocess exited with code {proc.returncode}: {error_msg}")
-            
+            raw = (proc.stderr or "") + ("\n" + proc.stdout if proc.stdout else "")
+            raw = raw.strip() or "Unknown error"
+            # Detect missing Playwright browser and give an actionable hint
+            if "Executable doesn't exist" in raw or "chrome-headless-shell" in raw or "playwright install" in raw:
+                raise RuntimeError(
+                    "Playwright Chromium browser is missing. "
+                    "Run: python -m playwright install chromium "
+                    "(or install Google Chrome / Microsoft Edge for auto-fallback). "
+                    f"Details: {raw[:600]}"
+                )
+            # Trim to last useful error line(s) for the UI alert
+            tail = "\n".join([ln for ln in raw.splitlines() if ln.strip()])[-800:]
+            raise RuntimeError(f"PDF generator failed: {tail}")
+
         if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
             raise RuntimeError("PDF generator did not produce a valid output file.")
             

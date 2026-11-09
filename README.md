@@ -31,6 +31,7 @@ The app is **local-first by design**. The server runs on your machine, extractio
 - [Configuration & Data](#configuration--data)
 - [Privacy](#privacy)
 - [Troubleshooting](#troubleshooting)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## Features
@@ -140,7 +141,7 @@ Gemini-Canvas-Extracter/
 | `POST` | `/api/generate-docx` | Render title + Markdown to `.docx` |
 | `GET` / `POST` | `/api/history` | List / save history entries |
 | `DELETE` | `/api/history`, `/api/history/{id}` | Clear all / delete one entry |
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health`, `/health` | Health check |
 
 ## Configuration & Data
 
@@ -155,11 +156,16 @@ The server runs locally on `127.0.0.1`. Links you paste are fetched from Google'
 
 ## Troubleshooting
 
-- **`playwright install chromium` fails** — install a system Chrome/Chromium instead and set `PLAYWRIGHT_BROWSERS_PATH`, or run `playwright install --with-deps chromium` on Linux for missing OS libraries.
+- **`playwright install chromium` fails** — install a system Chrome/Chromium instead and set `PLAYWRIGHT_BROWSERS_PATH` (or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` / `CHROME_PATH` for a specific executable), or run `playwright install --with-deps chromium` on Linux for missing OS libraries.
+- **`Executable doesn't exist ... chrome-headless-shell.exe` on PDF export** — Playwright was updated without re-downloading browsers. Run `playwright install chromium`, or install Edge/Chrome (the PDF engine auto-falls back to a system browser when the bundled one is missing since 2.5.1 — see [CHANGELOG.md](CHANGELOG.md)).
 - **PDF comes out blank** — make sure the Chromium download finished (`playwright install chromium`); check the server terminal for render errors.
 - **Port 8000 already in use** — run `stop.bat`, or start on another port: `python -m uvicorn app:app --port 8001`.
 - **Extraction failed / check the link is public** — the share link must be a public `share.gemini.google` link; private or expired links cannot be fetched.
 - **Page shows stale styles after updating** — hard-refresh (`Ctrl+Shift+R`); the server sends no-cache headers, but the CDN scripts (Tailwind, KaTeX) need network access on first load.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Latest: **2.5.1 (2026-11-09)** — fixed PDF generation after a Playwright update (missing Chromium → Edge/Chrome fallback + clear error), added `GET /health` alias, and `GET /favicon.ico`.
 
 ## License
 

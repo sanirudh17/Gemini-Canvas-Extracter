@@ -1,8 +1,8 @@
-from pathlib import Path
 """
 FastAPI Server for Gemini Canvas Artifact Extractor & Multi-Format Exporter
 Supports PDF (Chromium High-Res), Word Document (.docx), Markdown, History Tracking & Print Optimization.
 """
+from pathlib import Path
 
 import os
 import io
@@ -23,7 +23,7 @@ import history_manager
 app = FastAPI(
     title="Gemini Canvas Artifact Workbench",
     description="Extracts and renders complete text, Markdown tables, and ASCII art diagrams from Gemini Canvas share links with PDF, DOCX, and print export.",
-    version="2.5.0"
+    version="2.5.1"
 )
 
 # CORS middleware
@@ -303,7 +303,17 @@ async def shutdown_server():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.0"}
+    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.1"}
+
+
+@app.get("/health")
+async def health_check_alias():
+    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.1"}
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
 
 
 # Mount static files and local KaTeX vendor fonts
