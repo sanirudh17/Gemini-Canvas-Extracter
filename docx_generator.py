@@ -35,16 +35,109 @@ if os.path.exists(xslt_path):
         print(f"Warning: Could not initialize MML2OMML.XSL: {e}")
 
 
+_UNICODE_TO_LATEX = {
+    '≠': r'\neq ', '≤': r'\leq ', '≥': r'\geq ', '×': r'\times ', '÷': r'\div ',
+    '±': r'\pm ', '∓': r'\mp ', '∞': r'\infty ', '∈': r'\in ', '∉': r'\notin ',
+    '⊂': r'\subset ', '⊆': r'\subseteq ', '⊃': r'\supset ', '⊇': r'\supseteq ',
+    '∪': r'\cup ', '∩': r'\cap ', '∅': r'\emptyset ', '∀': r'\forall ', '∃': r'\exists ',
+    '¬': r'\neg ', '∧': r'\land ', '∨': r'\lor ', '⊕': r'\oplus ', '⊗': r'\otimes ',
+    '→': r'\rightarrow ', '←': r'\leftarrow ', '↔': r'\leftrightarrow ',
+    '⇒': r'\Rightarrow ', '⇐': r'\Leftarrow ', '⇔': r'\Leftrightarrow ',
+    '≈': r'\approx ', '≡': r'\equiv ', '≅': r'\cong ', '∼': r'\sim ', '∝': r'\propto ',
+    '∑': r'\sum ', '∏': r'\prod ', '∫': r'\int ', '∂': r'\partial ', '∇': r'\nabla ',
+    '⊢': r'\vdash ', '⊨': r'\models ', '⊥': r'\perp ', '⊤': r'\top ',
+    '∴': r'\therefore ', '∵': r'\because ', '−': '-', '·': r'\cdot ', '…': r'\dots ',
+    '⌊': r'\lfloor ', '⌋': r'\rfloor ', '⌈': r'\lceil ', '⌉': r'\rceil ',
+    '⟨': r'\langle ', '⟩': r'\rangle ', '°': r'^{\circ}',
+    'α': r'\alpha ', 'β': r'\beta ', 'γ': r'\gamma ', 'δ': r'\delta ',
+    'ε': r'\epsilon ', 'ζ': r'\zeta ', 'η': r'\eta ', 'θ': r'\theta ',
+    'ι': r'\iota ', 'κ': r'\kappa ', 'λ': r'\lambda ', 'μ': r'\mu ',
+    'ν': r'\nu ', 'ξ': r'\xi ', 'π': r'\pi ', 'ρ': r'\rho ',
+    'σ': r'\sigma ', 'τ': r'\tau ', 'υ': r'\upsilon ', 'φ': r'\phi ',
+    'χ': r'\chi ', 'ψ': r'\psi ', 'ω': r'\omega ',
+    'Γ': r'\Gamma ', 'Δ': r'\Delta ', 'Θ': r'\Theta ', 'Λ': r'\Lambda ',
+    'Ξ': r'\Xi ', 'Π': r'\Pi ', 'Σ': r'\Sigma ', 'Υ': r'\Upsilon ',
+    'Φ': r'\Phi ', 'Ψ': r'\Psi ', 'Ω': r'\Omega ',
+}
+
+_STANDALONE_ENV_NAMES = (
+    r'equation\*?|align\*?|aligned|alignat\*?|alignedat|gather\*?|gathered|'
+    r'multline\*?|eqnarray\*?|flalign\*?|split|cases|dcases|rcases|'
+    r'pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|matrix|smallmatrix|array'
+)
+
+
+def _sanitize_mathml_xml(mml: str) -> str:
+    """Fixes unescaped '&' and literal LaTeX escapes inside <mtext> emitted by latex2mathml."""
+    def _clean_mtext(m: re.Match) -> str:
+        attrs, inner = m.group(1), m.group(2)
+        inner = inner.replace(r'\$', '$').replace(r'\%', '%').replace(r'\_', '_')
+        inner = inner.replace(r'\#', '#').replace(r'\{', '{').replace(r'\}', '}')
+        inner = inner.replace(r'\&', '&amp;')
+        return f'<mtext{attrs}>{inner}</mtext>'
+
+    mml = re.sub(r'<mtext([^>]*)>(.*?)</mtext>', _clean_mtext, mml, flags=re.DOTALL)
+    # Remove stray alignment marker <mi>&</mi> emitted for aligned/align envs
+    mml = mml.replace('<mi>&</mi>', '')
+    # Escape any remaining bare ampersands not starting an XML entity
+    mml = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)', '&amp;', mml)
+    return mml
+
+
 @functools.lru_cache(maxsize=4096)
 def _latex_to_omml_xml(clean: str) -> Optional[bytes]:
     try:
         mathml = latex2mathml.converter.convert(clean)
-        tree = etree.fromstring(mathml)
+        mathml = _sanitize_mathml_xml(mathml)
+        tree = etree.fromstring(mathml.encode('utf-8'))
         omml_tree = transform(tree)
         root = omml_tree.getroot()
         return etree.tostring(root) if root is not None else None
     except Exception:
         return None
+
+
+def _normalize_latex_for_omml(latex_code: str) -> str:
+    clean = latex_code.strip()
+    if not clean:
+        return ''
+    if clean.endswith('\\') and not clean.endswith('\\\\'):
+        clean = clean + '$'
+
+    # Normalize Unicode math symbols into canonical LaTeX (outside \text{})
+    for ch, rep in _UNICODE_TO_LATEX.items():
+        if ch in clean:
+            clean = clean.replace(ch, rep)
+
+    # Normalize common aliases / environments for latex2mathml
+    clean = re.sub(r'\\not\s*=', r'\\neq', clean)
+    clean = re.sub(r'\\not\s*\\in(?![a-zA-Z])', r'\\notin', clean)
+    clean = re.sub(r'\\text\{\\\$\}', r'\\$', clean)
+    clean = re.sub(r'\\(begin|end)\{(?:align|aligned|align\*|eqnarray|eqnarray\*|flalign|flalign\*|split)\}', r'\\\1{aligned}', clean)
+    clean = re.sub(r'\\(begin|end)\{(?:gather|gathered|gather\*|multline|multline\*)\}', r'\\\1{matrix}', clean)
+    clean = re.sub(r'\\begin\{equation\*?\}([\s\S]*?)\\end\{equation\*?\}', r'\1', clean)
+
+    # Expand custom convenience macros
+    macro_subs = [
+        (r'\\R(?![a-zA-Z])', r'\\mathbb{R}'),
+        (r'\\N(?![a-zA-Z])', r'\\mathbb{N}'),
+        (r'\\Z(?![a-zA-Z])', r'\\mathbb{Z}'),
+        (r'\\Q(?![a-zA-Z])', r'\\mathbb{Q}'),
+        (r'\\C(?![a-zA-Z])', r'\\mathbb{C}'),
+        (r'\\bigO(?![a-zA-Z])', r'\\mathcal{O}'),
+        (r'\\eps(?![a-zA-Z])', r'\\varepsilon'),
+        (r'\\argmax(?![a-zA-Z])', r'\\operatorname{argmax}'),
+        (r'\\argmin(?![a-zA-Z])', r'\\operatorname{argmin}'),
+        (r'\\Var(?![a-zA-Z])', r'\\operatorname{Var}'),
+        (r'\\Cov(?![a-zA-Z])', r'\\operatorname{Cov}'),
+    ]
+    for pat, rep in macro_subs:
+        clean = re.sub(pat, rep, clean)
+
+    # Clean markdown-escaped asterisk inside math (preserve \_ inside \text{})
+    clean = clean.replace(r'\*', '*')
+    clean = re.sub(r'\\text\{([^{}]*)\}', lambda m: r'\text{' + re.sub(r'(?<!\\)&', r'\&', m.group(1)) + '}', clean)
+    return clean
 
 
 def latex_to_omml(latex_code: str):
@@ -55,14 +148,9 @@ def latex_to_omml(latex_code: str):
     if not transform:
         return None
     try:
-        clean = latex_code.strip()
-        if clean.endswith('\\'):
-            clean = clean + '$'
-        # Clean common markdown artifacts inside math
-        clean = clean.replace(r'\_', '_').replace(r'\*', '*')
-        clean = re.sub(r'\\text\{([^{}]*)\}', lambda m: r'\text{' + re.sub(r'(?<!\\)&', r'\&', m.group(1)) + '}', clean)
-        # Normalize double backslashes
-        clean = re.sub(r'\\\\', r'\\', clean)
+        clean = _normalize_latex_for_omml(latex_code)
+        if not clean:
+            return None
         xml_bytes = _latex_to_omml_xml(clean)
         if xml_bytes is not None:
             return etree.fromstring(xml_bytes)
@@ -70,51 +158,70 @@ def latex_to_omml(latex_code: str):
     except Exception:
         return None
 
+
 def fallback_math_text(math_code: str) -> str:
     """
     High-fidelity Unicode fallback for mathematical formulas when OMML is not applicable.
     """
     s = math_code.strip()
-    if s.endswith('\\'):
+    if s.endswith('\\') and not s.endswith('\\\\'):
         s = s + '$'
-    s = s.replace(r'\_', '_').replace(r'\*', '*')
     s = s.replace(r'\text{\$}', '$').replace(r'\$', '$')
-    
-    # Common LaTeX symbol replacements
+    s = s.replace(r'\&', '&').replace(r'\%', '%').replace(r'\_', '_').replace(r'\*', '*')
+    s = re.sub(r'\\not\s*=', '≠', s)
+    s = re.sub(r'\\not\s*\\in(?![a-zA-Z])', '∉', s)
+
+    # Unwrap common formatting wrappers (\text{...}, \mathbf{...}, \mathrm{...}, \operatorname{...}, etc.)
+    for _ in range(3):
+        s = re.sub(r'\\(?:text|textbf|textit|textrm|mathbf|mathrm|mathit|mathcal|mathbb|mathsf|mathtt|operatorname|boxed|cancel)\{([^{}]*)\}', r'\1', s)
+
+    # Replace spacing commands and linebreaks
+    s = re.sub(r'\\(?:qquad|quad|enspace|thickspace|medspace|thinspace|,|;|!| )', ' ', s)
+    s = re.sub(r'\\(?:left|right|big|Big|bigg|Bigg)\b', '', s)
+    s = re.sub(r'\\(?:begin|end)\{[^}]+\}', '', s)
+    s = s.replace(r'\\', '; ')
+
+    # Comprehensive LaTeX symbol replacements (longest keys first where prefixes overlap)
     replacements = [
-        (r'\ast', '∗'),
-        (r'\sum', '∑'),
-        (r'\le', '≤'), (r'\leq', '≤'),
-        (r'\ge', '≥'), (r'\geq', '≥'),
-        (r'\neq', '≠'), (r'\ne', '≠'),
-        (r'\approx', '≈'), (r'\equiv', '≡'),
-        (r'\times', '×'), (r'\cdot', '·'),
-        (r'\pm', '±'), (r'\mp', '∓'),
-        (r'\to', '→'), (r'\rightarrow', '→'), (r'\longrightarrow', '⟶'),
-        (r'\leftarrow', '←'), (r'\longleftarrow', '⟵'),
-        (r'\implies', '⟹'), (r'\iff', '⟺'),
-        (r'\dots', '…'), (r'\cdots', '…'),
-        (r'\forall', '∀'), (r'\exists', '∃'),
-        (r'\in', '∈'), (r'\notin', '∉'), (r'\subset', '⊂'), (r'\subseteq', '⊆'),
-        (r'\cap', '∩'), (r'\cup', '∪'),
-        (r'\infty', '∞'),
-        (r'\alpha', 'α'), (r'\beta', 'β'), (r'\gamma', 'γ'),
-        (r'\delta', 'δ'), (r'\epsilon', 'ε'), (r'\zeta', 'ζ'),
-        (r'\eta', 'η'), (r'\theta', 'θ'), (r'\lambda', 'λ'),
-        (r'\mu', 'μ'), (r'\nu', 'ν'), (r'\xi', 'ξ'),
-        (r'\pi', 'π'), (r'\rho', 'ρ'), (r'\sigma', 'σ'),
-        (r'\tau', 'τ'), (r'\phi', 'φ'), (r'\chi', 'χ'),
-        (r'\psi', 'ψ'), (r'\omega', 'ω'),
-        (r'\Delta', 'Δ'), (r'\Sigma', 'Σ'), (r'\Omega', 'Ω'),
-        (r'\Theta', 'Θ'), (r'\Lambda', 'Λ'), (r'\Phi', 'Φ'),
+        (r'\Longleftrightarrow', '⟺'), (r'\Longrightarrow', '⟹'), (r'\Longleftarrow', '⟸'),
+        (r'\longleftrightarrow', '⟷'), (r'\longrightarrow', '⟶'), (r'\longleftarrow', '⟵'),
+        (r'\leftrightarrow', '↔'), (r'\Leftrightarrow', '⇔'),
+        (r'\rightarrow', '→'), (r'\Rightarrow', '⇒'), (r'\leftarrow', '←'), (r'\Leftarrow', '⇐'),
+        (r'\implies', '⟹'), (r'\impliedby', '⟸'), (r'\iff', '⟺'), (r'\mapsto', '↦'), (r'\to', '→'),
+        (r'\subseteq', '⊆'), (r'\supseteq', '⊇'), (r'\subset', '⊂'), (r'\supset', '⊃'),
+        (r'\notin', '∉'), (r'\in', '∈'), (r'\ni', '∋'), (r'\setminus', '∖'),
+        (r'\emptyset', '∅'), (r'\varnothing', '∅'),
+        (r'\neq', '≠'), (r'\ne', '≠'), (r'\leq', '≤'), (r'\le', '≤'), (r'\geq', '≥'), (r'\ge', '≥'),
+        (r'\approx', '≈'), (r'\equiv', '≡'), (r'\cong', '≅'), (r'\simeq', '≃'), (r'\sim', '∼'), (r'\propto', '∝'),
+        (r'\times', '×'), (r'\div', '÷'), (r'\cdot', '·'), (r'\cdots', '⋯'), (r'\ldots', '…'), (r'\dots', '…'),
+        (r'\pm', '±'), (r'\mp', '∓'), (r'\ast', '∗'), (r'\circ', '∘'), (r'\bullet', '•'),
+        (r'\forall', '∀'), (r'\nexists', '∄'), (r'\exists', '∃'),
+        (r'\lnot', '¬'), (r'\neg', '¬'), (r'\land', '∧'), (r'\lor', '∨'),
+        (r'\oplus', '⊕'), (r'\otimes', '⊗'), (r'\odot', '⊙'),
+        (r'\cap', '∩'), (r'\cup', '∪'), (r'\infty', '∞'),
+        (r'\sum', '∑'), (r'\prod', '∏'), (r'\iint', '∬'), (r'\iiint', '∭'), (r'\oint', '∮'), (r'\int', '∫'),
+        (r'\partial', '∂'), (r'\nabla', '∇'),
+        (r'\vdash', '⊢'), (r'\models', '⊨'), (r'\perp', '⊥'), (r'\top', '⊤'), (r'\bot', '⊥'),
+        (r'\therefore', '∴'), (r'\because', '∵'), (r'\mid', '|'),
+        (r'\lfloor', '⌊'), (r'\rfloor', '⌋'), (r'\lceil', '⌈'), (r'\rceil', '⌉'),
+        (r'\langle', '⟨'), (r'\rangle', '⟩'),
+        (r'\varepsilon', 'ε'), (r'\epsilon', 'ε'), (r'\vartheta', 'ϑ'), (r'\varphi', 'φ'), (r'\varsigma', 'ς'),
+        (r'\alpha', 'α'), (r'\beta', 'β'), (r'\gamma', 'γ'), (r'\delta', 'δ'),
+        (r'\zeta', 'ζ'), (r'\eta', 'η'), (r'\theta', 'θ'), (r'\iota', 'ι'), (r'\kappa', 'κ'),
+        (r'\lambda', 'λ'), (r'\mu', 'μ'), (r'\nu', 'ν'), (r'\xi', 'ξ'),
+        (r'\pi', 'π'), (r'\rho', 'ρ'), (r'\sigma', 'σ'), (r'\tau', 'τ'), (r'\upsilon', 'υ'),
+        (r'\phi', 'φ'), (r'\chi', 'χ'), (r'\psi', 'ψ'), (r'\omega', 'ω'),
+        (r'\Gamma', 'Γ'), (r'\Delta', 'Δ'), (r'\Theta', 'Θ'), (r'\Lambda', 'Λ'),
+        (r'\Xi', 'Ξ'), (r'\Pi', 'Π'), (r'\Sigma', 'Σ'), (r'\Upsilon', 'Υ'),
+        (r'\Phi', 'Φ'), (r'\Psi', 'Ψ'), (r'\Omega', 'Ω'),
     ]
     for pattern, rep in replacements:
-        s = s.replace(pattern, rep)
+        s = re.sub(re.escape(pattern) + r'(?![a-zA-Z])', rep, s)
 
     # Fractions: \frac{a}{b} -> (a / b)
-    s = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1 / \2)', s)
+    s = re.sub(r'\\d?frac\{([^{}]+)\}\{([^{}]+)\}', r'(\1 / \2)', s)
     # Square root: \sqrt{x} -> √(x)
-    s = re.sub(r'\\sqrt\{([^}]+)\}', r'√(\1)', s)
+    s = re.sub(r'\\sqrt\{([^{}]+)\}', r'√(\1)', s)
 
     # Convert common superscripts
     sup_map = {'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵',
@@ -122,9 +229,8 @@ def fallback_math_text(math_code: str) -> str:
                '=': '⁼', '(': '⁽', ')': '⁾', 'n': 'ⁿ', 'm': 'ᵐ', 'i': 'ⁱ'}
     def sup_repl(m):
         content = m.group(1)
-        res = ''.join(sup_map.get(c, c) for c in content)
-        return res
-    s = re.sub(r'\^\{([^}]+)\}', sup_repl, s)
+        return ''.join(sup_map.get(c, c) for c in content)
+    s = re.sub(r'\^\{([^{}]+)\}', sup_repl, s)
     s = re.sub(r'\^([0-9m-n\+\-])', lambda m: sup_map.get(m.group(1), m.group(1)), s)
 
     # Convert common subscripts
@@ -136,13 +242,13 @@ def fallback_math_text(math_code: str) -> str:
                'v': 'ᵥ', 'x': 'ₓ'}
     def sub_repl(m):
         content = m.group(1)
-        res = ''.join(sub_map.get(c, c) for c in content)
-        return res
-    s = re.sub(r'_\{([^}]+)\}', sub_repl, s)
+        return ''.join(sub_map.get(c, c) for c in content)
+    s = re.sub(r'_\{([^{}]+)\}', sub_repl, s)
     s = re.sub(r'_([0-9a-z])', lambda m: sub_map.get(m.group(1), m.group(1)), s)
 
-    # Clean leftover backslashes before words
+    # Clean leftover backslashes before words and collapse whitespace
     s = re.sub(r'\\([a-zA-Z]+)', r'\1', s)
+    s = re.sub(r'[ \t]{2,}', ' ', s).strip()
     return s
 
 
@@ -174,52 +280,131 @@ def set_run_font(
     rPr.append(rFonts)
 
 
+def _split_table_row_math_aware(row_line: str) -> List[str]:
+    """Splits a GFM markdown table row on unescaped '|' outside inline math and inline code."""
+    s = row_line.strip()
+    if s.startswith('|'):
+        s = s[1:]
+    if s.endswith('|') and not s.endswith(r'\|'):
+        s = s[:-1]
+
+    cells = []
+    buf = []
+    in_code = False
+    in_math = False
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == '\\' and i + 1 < n:
+            if not in_code and not in_math and s[i + 1] == '|':
+                buf.append('|')
+                i += 2
+                continue
+            buf.append(ch)
+            buf.append(s[i + 1])
+            i += 2
+            continue
+        if ch == '`' and not in_math:
+            in_code = not in_code
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '$' and not in_code:
+            in_math = not in_math
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '|' and not in_code and not in_math:
+            cells.append(''.join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    cells.append(''.join(buf).strip())
+    return cells
+
+
+def _append_math_to_paragraph(p, math_code: str, base_size: Pt):
+    omml = latex_to_omml(math_code)
+    if omml is not None:
+        p._element.append(omml)
+    else:
+        clean = fallback_math_text(math_code)
+        r = p.add_run(clean)
+        set_run_font(r, 'Cambria Math', base_size, italic=True, color_rgb=RGBColor(30, 41, 59))
+
+
 def add_inline_formatted_text(
     p,
     text: str,
     base_font: str = 'Inter',
     base_size: Pt = Pt(10),
-    base_color: RGBColor = RGBColor(15, 23, 42)
+    base_color: RGBColor = RGBColor(15, 23, 42),
+    bold: bool = False,
+    italic: bool = False
 ):
     """
-    Parses inline markdown (**bold**, *italic*, `code`, and $math$) and adds
-    corresponding native runs and OMML math elements to the paragraph.
+    Parses inline markdown (**bold**, *italic*, `code`, $math$, \\(math\\), $$math$$)
+    and adds corresponding native runs and OMML math elements to the paragraph.
     """
-    # Tokenize text by markdown delimiters with escaped dollar support in math
-    tokens = re.split(r'(\*\*[^*]+?\*\*|\*[^*]+?\*|`[^`]+?`|(?<!\\)\$(?:\\\$|[^\$\n\r])+?(?<!\\)\$)', text)
+    # Unescape common Markdown bracket escapes outside math (e.g. \[MCQ\] -> [MCQ])
+    # Tokenize by inline code, display/inline math, \(...\), bold, italic
+    token_pattern = (
+        r'(`[^`]+?`'
+        r'|(?<![\$\\])\$\$(?:\\\$|[\s\S])+?(?<!\\)\$\$'
+        r'|(?<!\\)\$(?:\\\$|[^\$\n\r])+?(?<!\\)\$'
+        r'|(?<!\\)\\\((?:\\\)|[^\n\r])+?\\\)'
+        r'|\*\*[^*]+?\*\*'
+        r'|\*[^*]+?\*)'
+    )
+    tokens = re.split(token_pattern, text)
 
     for token in tokens:
         if not token:
             continue
 
-        if token.startswith('**') and token.endswith('**') and len(token) > 4:
-            subtext = token[2:-2]
-            if '$' in subtext:
-                add_inline_formatted_text(p, subtext, base_font=base_font, base_size=base_size, base_color=base_color)
-            else:
-                r = p.add_run(subtext)
-                set_run_font(r, base_font, base_size, bold=True, color_rgb=base_color)
-
-        elif token.startswith('*') and token.endswith('*') and len(token) > 2:
+        if token.startswith('`') and token.endswith('`') and len(token) > 2:
             r = p.add_run(token[1:-1])
-            set_run_font(r, base_font, base_size, italic=True, color_rgb=base_color)
+            set_run_font(r, 'Consolas', Pt(base_size.pt * 0.92), bold=bold, color_rgb=RGBColor(37, 99, 235))
 
-        elif token.startswith('`') and token.endswith('`') and len(token) > 2:
-            r = p.add_run(token[1:-1])
-            set_run_font(r, 'Consolas', Pt(base_size.pt * 0.92), color_rgb=RGBColor(37, 99, 235))
+        elif token.startswith('$$') and token.endswith('$$') and len(token) > 4:
+            _append_math_to_paragraph(p, token[2:-2], base_size)
 
         elif token.startswith('$') and token.endswith('$') and len(token) > 2:
-            math_code = token[1:-1]
-            omml = latex_to_omml(math_code)
-            if omml is not None:
-                p._element.append(omml)
+            _append_math_to_paragraph(p, token[1:-1], base_size)
+
+        elif token.startswith(r'\(') and token.endswith(r'\)') and len(token) > 4:
+            _append_math_to_paragraph(p, token[2:-2], base_size)
+
+        elif token.startswith('**') and token.endswith('**') and len(token) > 4:
+            subtext = token[2:-2]
+            if '$' in subtext or r'\(' in subtext or '`' in subtext or '*' in subtext:
+                add_inline_formatted_text(
+                    p, subtext, base_font=base_font, base_size=base_size,
+                    base_color=base_color, bold=True, italic=italic
+                )
             else:
-                clean = fallback_math_text(math_code)
-                r = p.add_run(clean)
-                set_run_font(r, 'Cambria Math', base_size, italic=True, color_rgb=RGBColor(30, 41, 59))
+                r = p.add_run(subtext.replace(r'\[', '[').replace(r'\]', ']'))
+                set_run_font(r, base_font, base_size, bold=True, italic=italic, color_rgb=base_color)
+
+        elif token.startswith('*') and token.endswith('*') and len(token) > 2:
+            subtext = token[1:-1]
+            if '$' in subtext or r'\(' in subtext or '`' in subtext:
+                add_inline_formatted_text(
+                    p, subtext, base_font=base_font, base_size=base_size,
+                    base_color=base_color, bold=bold, italic=True
+                )
+            else:
+                r = p.add_run(subtext.replace(r'\[', '[').replace(r'\]', ']'))
+                set_run_font(r, base_font, base_size, bold=bold, italic=True, color_rgb=base_color)
+
         else:
-            r = p.add_run(token)
-            set_run_font(r, base_font, base_size, color_rgb=base_color)
+            # Clean markdown-escaped punctuation in plain prose
+            plain = token.replace(r'\[', '[').replace(r'\]', ']').replace(r'\$', '$').replace(r'\*', '*')
+            r = p.add_run(plain)
+            set_run_font(r, base_font, base_size, bold=bold, italic=italic, color_rgb=base_color)
 
 
 # ==============================================================================
@@ -265,21 +450,66 @@ def parse_markdown_blocks(text: str) -> List[Tuple]:
             blocks.append(('code', lang, '\n'.join(code_lines)))
             continue
 
-        # 2. Display Math ($$)
+        # 2. Display Math ($$ ... $$, including trailing \$$$ or Gemini's \$$)
         if stripped.startswith('$$'):
             if len(stripped) > 2 and stripped.endswith('$$'):
+                inner = stripped[2:-2]
+                if stripped.endswith(r'\$$$'):
+                    inner = stripped[2:-2]
+                elif inner.endswith('\\') and not inner.endswith('\\\\'):
+                    inner = inner + '$'
+                blocks.append(('display_math', inner.strip()))
+                i += 1
+                continue
+            math_lines = [stripped[2:]] if len(stripped) > 2 else []
+            i += 1
+            while i < n and not lines[i].strip().endswith('$$'):
+                math_lines.append(lines[i])
+                i += 1
+            if i < n:
+                end_line = lines[i].strip()[:-2]
+                if end_line.endswith('\\') and not end_line.endswith('\\\\'):
+                    end_line = end_line + '$'
+                math_lines.append(end_line)
+                i += 1
+            blocks.append(('display_math', '\n'.join(math_lines).strip()))
+            continue
+
+        # 2b. Display Math (\[ ... \] block-level)
+        if stripped.startswith(r'\[') and (stripped == r'\[' or re.search(r'\\[a-zA-Z]+|[=<>^_{}+*/]', stripped[2:])):
+            if stripped.endswith(r'\]') and len(stripped) > 4:
                 blocks.append(('display_math', stripped[2:-2].strip()))
                 i += 1
                 continue
-            math_lines = []
+            math_lines = [stripped[2:]] if len(stripped) > 2 else []
             i += 1
-            while i < n and not lines[i].strip().endswith('$$'):
+            while i < n and not lines[i].strip().endswith(r'\]'):
                 math_lines.append(lines[i])
                 i += 1
             if i < n:
                 math_lines.append(lines[i].strip()[:-2])
                 i += 1
             blocks.append(('display_math', '\n'.join(math_lines).strip()))
+            continue
+
+        # 2c. Standalone LaTeX display environment (\begin{align}...\end{align}, etc.)
+        env_match = re.match(rf'^\\begin\{{({_STANDALONE_ENV_NAMES})\}}', stripped)
+        if env_match:
+            env_name = env_match.group(1)
+            end_tag = f'\\end{{{env_name}}}'
+            if end_tag in stripped:
+                blocks.append(('display_math', stripped))
+                i += 1
+                continue
+            env_lines = [stripped]
+            i += 1
+            while i < n:
+                env_lines.append(lines[i])
+                if end_tag in lines[i]:
+                    i += 1
+                    break
+                i += 1
+            blocks.append(('display_math', '\n'.join(env_lines).strip()))
             continue
 
         # 3. Headings (#)
@@ -307,7 +537,7 @@ def parse_markdown_blocks(text: str) -> List[Tuple]:
 
             parsed_rows = []
             for tl in table_lines:
-                cells = [c.strip() for c in tl.strip('|').split('|')]
+                cells = _split_table_row_math_aware(tl)
                 parsed_rows.append(cells)
             blocks.append(('table', parsed_rows))
             continue

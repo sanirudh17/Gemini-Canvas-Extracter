@@ -50,9 +50,9 @@ The app is **local-first by design**. The server runs on your machine, extractio
 
 **Around the app**
 
-- **History** with search, one-click reopen, and per-item PDF/Word export.
-- **Light and dark themes**, plus per-diagram paper/terminal ASCII themes.
-- **Monochrome, minimal interface** — single column, one primary action per row.
+- **History** grouped chronologically (`Today`, `Yesterday`, `This Week`, `Earlier`) with `All` / `Starred` filters, inline notes, live search (`/` shortcut), one-click reopen, and per-item PDF/Word export.
+- **Instant light and dark monochrome themes**, plus smooth sliding paper/terminal ASCII diagram theme controls.
+- **Minimal monochrome interface** — centered single-column workspace, zero external CSS frameworks, and local vendor KaTeX/Marked assets.
 
 ## How It Works
 
@@ -109,10 +109,10 @@ Then open **http://127.0.0.1:8000**, paste a public Gemini share link, and hit *
 
 ## Tech Stack
 
-- **Backend** — FastAPI + Uvicorn, Pydantic, httpx
-- **PDF** — Playwright (headless Chromium) with dedicated print CSS
-- **Word** — python-docx, MathML→OMML via `MML2OMML.XSL`
-- **Frontend** — vanilla HTML/CSS/JS, Tailwind utilities, Marked, KaTeX, Lucide icons
+- **Backend** — FastAPI + Uvicorn, Pydantic
+- **PDF** — Playwright (headless Chromium with Edge/Chrome fallback), embedded base64 KaTeX `.woff2` fonts, and dedicated print CSS
+- **Word** — python-docx, latex2mathml, and MathML→OMML via `MML2OMML.XSL`
+- **Frontend** — vanilla HTML/CSS/JS, local vendor Marked and KaTeX, unified `math_renderer.js`, Lucide + custom SVG icons
 - **Storage** — local JSON file (`data/history.json`, auto-created)
 
 ## Project Structure
@@ -121,14 +121,17 @@ Then open **http://127.0.0.1:8000**, paste a public Gemini share link, and hit *
 Gemini-Canvas-Extracter/
 ├── app.py               # FastAPI server + API routes
 ├── extractor.py         # Gemini share-link RPC extraction
-├── pdf_generator.py     # Markdown → HTML → PDF (Playwright Chromium)
+├── pdf_generator.py     # Markdown → HTML (embedded KaTeX fonts) → PDF
+├── generate_pdf_cli.py  # Isolated Playwright Chromium / Edge / Chrome PDF worker
 ├── docx_generator.py    # Markdown → .docx (python-docx + OMML math)
 ├── history_manager.py   # Local JSON history store (data/, auto-created)
 ├── MML2OMML.XSL         # MathML → OMML transform for Word exports
 ├── static/
 │   ├── index.html       # UI markup
 │   ├── style.css        # Monochrome light/dark design system
-│   └── app.js           # Extraction, rendering, export, history logic
+│   ├── math_renderer.js # Unified LaTeX, Unicode math, and Markdown renderer
+│   ├── app.js           # Extraction, export, theme, and history drawer logic
+│   └── vendor/          # Local Marked, KaTeX, and 20 .woff2 font files
 ├── requirements.txt
 ├── start.bat / stop.bat # Windows helpers
 └── README.md
@@ -138,8 +141,11 @@ Gemini-Canvas-Extracter/
 | ------ | -------- | ------- |
 | `POST` | `/api/extract` | Extract content from a share URL (`{"url": "..."}`) |
 | `POST` | `/api/generate-pdf` | Render title + Markdown to PDF |
+| `POST` | `/api/export-html` | Return self-contained print-ready HTML with embedded KaTeX fonts |
 | `POST` | `/api/generate-docx` | Render title + Markdown to `.docx` |
 | `GET` / `POST` | `/api/history` | List / save history entries |
+| `POST` | `/api/history/{id}/star` | Toggle starred status on a saved document |
+| `POST` | `/api/history/{id}/notes` | Save or clear an inline note on a saved document |
 | `DELETE` | `/api/history`, `/api/history/{id}` | Clear all / delete one entry |
 | `GET` | `/api/health`, `/health` | Health check |
 
@@ -161,11 +167,11 @@ The server runs locally on `127.0.0.1`. Links you paste are fetched from Google'
 - **PDF comes out blank** — make sure the Chromium download finished (`playwright install chromium`); check the server terminal for render errors.
 - **Port 8000 already in use** — run `stop.bat`, or start on another port: `python -m uvicorn app:app --port 8001`.
 - **Extraction failed / check the link is public** — the share link must be a public `share.gemini.google` link; private or expired links cannot be fetched.
-- **Page shows stale styles after updating** — hard-refresh (`Ctrl+Shift+R`); the server sends no-cache headers, but the CDN scripts (Tailwind, KaTeX) need network access on first load.
+- **Page shows stale styles after updating** — hard-refresh (`Ctrl+Shift+R`); the server sends no-cache headers and cache-busted static URLs, and Marked/KaTeX load locally from `/static/vendor/`.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md). Latest: **2.5.1 (2026-11-09)** — fixed PDF generation after a Playwright update (missing Chromium → Edge/Chrome fallback + clear error), added `GET /health` alias, and `GET /favicon.ico`.
+See [CHANGELOG.md](CHANGELOG.md). Latest: **2.6.0 (2026-11-19)** — unified math and LaTeX renderer across preview/PDF/Word with embedded KaTeX fonts and 100% OMML conversion, instant theme switching, high-contrast monochrome redesign, smooth sliding toggles, and revamped lag-free chronological history drawer.
 
 ## License
 

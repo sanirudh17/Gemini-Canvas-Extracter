@@ -4,14 +4,20 @@ Renders HTML/Markdown with KaTeX, styled tables, ASCII diagrams, and custom them
 """
 
 import asyncio
+import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import subprocess
 from typing import Optional
 
-_VENDOR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "vendor")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_STATIC_DIR = os.path.join(_BASE_DIR, "static")
+_VENDOR_DIR = os.path.join(_STATIC_DIR, "vendor")
+_FONTS_DIR = os.path.join(_VENDOR_DIR, "fonts")
+
 
 def _read_vendor_asset(filename: str) -> str:
     p = os.path.join(_VENDOR_DIR, filename)
@@ -23,9 +29,50 @@ def _read_vendor_asset(filename: str) -> str:
             pass
     return ""
 
+
+def _read_static_asset(filename: str) -> str:
+    p = os.path.join(_STATIC_DIR, filename)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            pass
+    return ""
+
+
+def _build_embedded_katex_css(raw_css: str) -> str:
+    """
+    Inlines all local KaTeX .woff2 font files as data URIs into katex.min.css.
+    This guarantees every mathematical symbol (\\neq, \\Sigma, \\sum, \\$, AMS, Size1-4, etc.)
+    renders crisply in headless Chromium PDF export and Print iframes where root-relative
+    /static/vendor/fonts/ URLs cannot resolve on about:blank.
+    """
+    if not raw_css or not os.path.isdir(_FONTS_DIR):
+        return raw_css
+
+    def _replace_font_src(match: re.Match) -> str:
+        woff2_match = re.search(r'url\([^)]*?([A-Za-z0-9_\-]+\.woff2)\)', match.group(0))
+        if not woff2_match:
+            return match.group(0)
+        font_name = woff2_match.group(1)
+        font_path = os.path.join(_FONTS_DIR, font_name)
+        if not os.path.isfile(font_path):
+            return match.group(0)
+        try:
+            with open(font_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            return f'src:url(data:font/woff2;base64,{b64}) format("woff2")'
+        except Exception:
+            return match.group(0)
+
+    return re.sub(r'src:[^;}]+', _replace_font_src, raw_css)
+
+
 _CACHED_MARKED_JS = _read_vendor_asset("marked.min.js")
 _CACHED_KATEX_JS = _read_vendor_asset("katex.min.js")
-_CACHED_KATEX_CSS = _read_vendor_asset("katex.min.css")
+_CACHED_KATEX_CSS = _build_embedded_katex_css(_read_vendor_asset("katex.min.css"))
+_CACHED_MATH_RENDERER_JS = _read_static_asset("math_renderer.js")
 def build_export_html(
     title: str,
     markdown_content: str,
@@ -43,10 +90,7 @@ def build_export_html(
         "large": "16px"
     }
     base_font_size = font_size_map.get(font_size, "14px")
-    
-    re_display_math = r'/(?<![\$\\])\$\$([\s\S]*?)\$\$/g'
-    re_inline_math = r'/(?<!\\)\$((?:\\\$|[^\$\n\r])+?)(?<!\\)\$/g'
-    
+
     # ASCII diagram styling based on ascii_light_theme
     if ascii_light_theme:
         ascii_css = "pre { background: #f8fafc !important; color: #0f172a !important; border: 1px solid #cbd5e1 !important; border-left: 3px solid #3b82f6 !important; }"
@@ -112,14 +156,17 @@ def build_export_html(
         """
 
     safe_markdown_json = json.dumps(markdown_content).replace("</", "<\\/").replace("<!--", "<\\!--")
+    math_renderer_js = _CACHED_MATH_RENDERER_JS or _read_static_asset("math_renderer.js")
     if _CACHED_MARKED_JS and _CACHED_KATEX_JS and _CACHED_KATEX_CSS:
         vendor_scripts_html = f"""<style>{_CACHED_KATEX_CSS}</style>
 <script>{_CACHED_MARKED_JS}</script>
-<script>{_CACHED_KATEX_JS}</script>"""
+<script>{_CACHED_KATEX_JS}</script>
+<script>{math_renderer_js}</script>"""
     else:
-        vendor_scripts_html = """<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        vendor_scripts_html = f"""<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>"""
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script>{math_renderer_js}</script>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -248,87 +295,9 @@ def build_export_html(
 <script>
 (function() {{
   const rawMarkdown = {safe_markdown_json};
-
-  function renderRobustMarkdown(markdownText) {{
-    const codeBlocks = [];
-    const inlineCodes = [];
-    const mathBlocks = [];
-    
-    // 1. Protect fenced code blocks (```...```)
-    let text = markdownText.replace(/```([\\s\\S]*?)```/g, (match) => {{
-      const id = `%%CODE_BLOCK_${{codeBlocks.length}}%%`;
-      codeBlocks.push({{ id, code: match }});
-      return id;
-    }});
-    
-    // 2. Protect inline code (`...`)
-    text = text.replace(/`([^`\\n]+?)`/g, (match) => {{
-      const id = `%%INLINE_CODE_${{inlineCodes.length}}%%`;
-      inlineCodes.push({{ id, code: match }});
-      return id;
-    }});
-    
-    function cleanMath(math) {{
-      let m = math.trim();
-      if (m.endsWith('\\\\')) {{
-        m = m + '$';
-      }}
-      m = m.replace(/\\\\text\\{{([^{{}}]*)\\}}/g, (match, inner) => {{
-        return '\\\\text{{' + inner.replace(/(?<!\\\\)&/g, '\\\\&') + '}}';
-      }});
-      return m;
-    }}
-    
-    // 3. Protect display math ($$...$$)
-    text = text.replace({re_display_math}, (match, math) => {{
-      const id = `%%KATEX_BLOCK_${{mathBlocks.length}}%%`;
-      const cleaned = cleanMath(math);
-      try {{
-        const rendered = katex.renderToString(cleaned, {{ displayMode: true, throwOnError: false }});
-        mathBlocks.push({{ id, html: `<div class="katex-display-wrapper">${{rendered}}</div>` }});
-      }} catch (e) {{
-        mathBlocks.push({{ id, html: `<div class="katex-display-wrapper katex-error">${{math}}</div>` }});
-      }}
-      return id;
-    }});
-    
-    // 4. Protect inline math ($...$) with escaped dollar support
-    text = text.replace({re_inline_math}, (match, math) => {{
-      if (!math.trim()) return match;
-      const id = `%%KATEX_INLINE_${{mathBlocks.length}}%%`;
-      const cleaned = cleanMath(math);
-      try {{
-        const rendered = katex.renderToString(cleaned, {{ displayMode: false, throwOnError: false }});
-        mathBlocks.push({{ id, html: rendered }});
-      }} catch (e) {{
-        mathBlocks.push({{ id, html: `<span>${{math}}</span>` }});
-      }}
-      return id;
-    }});
-    
-    // 5. Restore code blocks
-    codeBlocks.forEach(({{ id, code }}) => {{
-      text = text.replaceAll(id, code);
-    }});
-    inlineCodes.forEach(({{ id, code }}) => {{
-      text = text.replaceAll(id, code);
-    }});
-    
-    // 6. Parse Markdown with marked
-    marked.setOptions({{ gfm: true, breaks: true }});
-    let html = marked.parse(text);
-    
-    // 7. Restore KaTeX rendered HTML
-    mathBlocks.forEach(({{ id, html: mathHtml }}) => {{
-      html = html.replaceAll(id, mathHtml);
-    }});
-    
-    return html;
-  }}
-
   const container = document.getElementById('content');
-  if (container) {{
-    container.innerHTML = renderRobustMarkdown(rawMarkdown);
+  if (container && window.GeminiMathRenderer) {{
+    container.innerHTML = window.GeminiMathRenderer.renderMarkdown(rawMarkdown);
   }}
 }})();
 </script>

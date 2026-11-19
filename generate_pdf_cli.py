@@ -155,7 +155,8 @@ async def main():
             page = context.pages[0] if context.pages else await context.new_page()
 
             await page.set_content(html_content, wait_until='load', timeout=15000)
-            await page.wait_for_timeout(100)
+            await page.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
+            await page.wait_for_timeout(120)
 
             # Ensure output directory exists
             out_dir = os.path.dirname(os.path.abspath(output_pdf_file))

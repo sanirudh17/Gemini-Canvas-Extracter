@@ -23,7 +23,7 @@ import history_manager
 app = FastAPI(
     title="Gemini Canvas Artifact Workbench",
     description="Extracts and renders complete text, Markdown tables, and ASCII art diagrams from Gemini Canvas share links with PDF, DOCX, and print export.",
-    version="2.5.1"
+    version="2.6.0"
 )
 
 # CORS middleware
@@ -303,12 +303,12 @@ async def shutdown_server():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.1"}
+    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.6.0"}
 
 
 @app.get("/health")
 async def health_check_alias():
-    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.5.1"}
+    return {"status": "ok", "service": "gemini-canvas-extractor", "version": "2.6.0"}
 
 
 @app.get("/favicon.ico")
@@ -329,6 +329,7 @@ async def serve_index():
         with open(index_path, "r", encoding="utf-8") as f:
             content = f.read()
             cache_buster = f"?v={int(time.time())}"
+            content = content.replace('/static/math_renderer.js', f'/static/math_renderer.js{cache_buster}')
             content = content.replace('/static/app.js', f'/static/app.js{cache_buster}')
             content = content.replace('/static/style.css', f'/static/style.css{cache_buster}')
             return content

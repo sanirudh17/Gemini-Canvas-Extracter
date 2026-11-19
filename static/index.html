@@ -6,15 +6,15 @@
   <title>Gemini Canvas Extractor — PDF &amp; Word Export</title>
   <meta name="description" content="Paste a Gemini share link. Get PDF, Word, or print.">
 
-  <!-- Tailwind (layout utilities only — color comes from style.css tokens) -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked Markdown Parser (local vendor for instant offline-safe loading) -->
+  <script src="/static/vendor/marked.min.js"></script>
 
-  <!-- Marked Markdown Parser -->
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- KaTeX for Scientific & Math Typesetting (local vendor + all 20 woff2 fonts) -->
+  <link rel="stylesheet" href="/static/vendor/katex.min.css">
+  <script src="/static/vendor/katex.min.js"></script>
 
-  <!-- KaTeX for Scientific & Math Typesetting -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <!-- Unified Math & LaTeX Renderer -->
+  <script src="/static/math_renderer.js"></script>
 
   <!-- Lucide Modern Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -46,7 +46,10 @@
     <div class="topbar-inner">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <i data-lucide="sparkles"></i>
+          <svg class="ai-sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.2 2.5C9.8 6.4 12.0 8.6 15.9 9.2C12.0 9.8 9.8 12.0 9.2 15.9C8.6 12.0 6.4 9.8 2.5 9.2C6.4 8.6 8.6 6.4 9.2 2.5Z"/>
+            <path d="M17.3 13.1C17.7 15.6 19.0 16.9 21.5 17.3C19.0 17.7 17.7 19.0 17.3 21.5C16.9 19.0 15.6 17.7 13.1 17.3C15.6 16.9 16.9 15.6 17.3 13.1Z"/>
+          </svg>
         </span>
         <span class="brand-text">
           <span class="brand-name">Gemini Canvas Extractor</span>
@@ -54,8 +57,9 @@
       </div>
 
       <div class="topbar-controls">
-        <!-- ASCII diagram theme -->
-        <div class="segmented" role="group" aria-label="ASCII diagram theme">
+        <!-- ASCII diagram theme (smooth sliding segmented pill) -->
+        <div class="segmented" id="asciiSegmented" role="group" aria-label="ASCII diagram theme">
+          <span class="segmented-thumb" id="asciiSegmentedThumb" aria-hidden="true"></span>
           <button
             id="asciiLightBtn"
             type="button"
@@ -78,7 +82,7 @@
           </button>
         </div>
 
-        <!-- App light / dark theme -->
+        <!-- App light / dark theme (instant inline SVG swap, zero DOM rescan) -->
         <button
           id="themeToggleBtn"
           type="button"
@@ -87,7 +91,7 @@
           aria-label="Toggle light / dark theme"
           aria-pressed="false"
         >
-          <i data-lucide="moon" id="themeToggleIcon"></i>
+          <svg id="themeToggleIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
           <span class="icon-btn-label" id="themeToggleLabel">Dark</span>
         </button>
 
@@ -95,7 +99,7 @@
         <button
           id="stopServerBtn"
           type="button"
-          class="icon-btn"
+          class="icon-btn icon-btn--square"
           title="Stop the local server process"
           aria-label="Stop the local server process"
         >
@@ -115,61 +119,63 @@
     </noscript>
 
     <!-- Hero / URL input -->
-    <section id="heroSection" class="hero no-print" aria-labelledby="heroTitle">
-      <p class="eyebrow">Gemini canvas &rarr; document</p>
-      <h1 id="heroTitle" class="hero-title">Paste a link. Get the document.</h1>
-      <p class="hero-sub">
-        PDF, Word, or print. Math, tables, and diagrams intact.
-      </p>
-    </section>
+    <div class="workbench-center" id="workbenchCenter">
+      <section id="heroSection" class="hero no-print" aria-labelledby="heroTitle">
+        <h1 id="heroTitle" class="hero-title">Extract any Gemini Canvas.</h1>
+        <p class="hero-sub">Share link to PDF, Word, or print — LaTeX math, tables, and ASCII diagrams intact.</p>
+      </section>
 
-    <div class="extract-card">
-      <form id="extractForm" class="extract-form" autocomplete="off">
-        <div class="extract-field">
-          <i data-lucide="link" class="field-icon" aria-hidden="true"></i>
-          <label for="urlInput" class="sr-only">Gemini share link</label>
-          <input
-            type="text"
-            id="urlInput"
-            placeholder="Paste Gemini share link…"
-            class="extract-input"
-            required
-            spellcheck="false"
-            autocomplete="off"
-            autocapitalize="off"
-            autocorrect="off"
-            inputmode="url"
-          >
-          <button
-            type="button"
-            id="clearUrlBtn"
-            class="clear-btn is-hidden"
-            aria-label="Clear link"
-          >
-            <i data-lucide="x"></i>
+      <div class="extract-card">
+        <form id="extractForm" class="extract-form" autocomplete="off">
+          <div class="extract-field">
+            <i data-lucide="link" class="field-icon" aria-hidden="true"></i>
+            <label for="urlInput" class="sr-only">Gemini share link</label>
+            <input
+              type="text"
+              id="urlInput"
+              placeholder="Paste Gemini share link…"
+              class="extract-input"
+              required
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              inputmode="url"
+            >
+            <button
+              type="button"
+              id="clearUrlBtn"
+              class="clear-btn is-hidden"
+              aria-label="Clear link"
+            >
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+
+          <button type="submit" id="extractBtn" class="btn-primary">
+            <svg class="ai-sparkle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9.2 2.5C9.8 6.4 12.0 8.6 15.9 9.2C12.0 9.8 9.8 12.0 9.2 15.9C8.6 12.0 6.4 9.8 2.5 9.2C6.4 8.6 8.6 6.4 9.2 2.5Z"/>
+              <path d="M17.3 13.1C17.7 15.6 19.0 16.9 21.5 17.3C19.0 17.7 17.7 19.0 17.3 21.5C16.9 19.0 15.6 17.7 13.1 17.3C15.6 16.9 16.9 15.6 17.3 13.1Z"/>
+            </svg>
+            <span>Extract</span>
           </button>
-        </div>
-
-        <button type="submit" id="extractBtn" class="btn-primary">
-          <i data-lucide="sparkles"></i>
-          <span>Extract</span>
-        </button>
-      </form>
+        </form>
 
         <div class="extract-meta">
           <button
-          id="openHistoryBtn"
-          type="button"
-          class="history-link"
-          title="Open previously extracted documents"
-          aria-haspopup="dialog"
-          aria-expanded="false"
-          aria-controls="historyDrawer"
-        >
-          <i data-lucide="history"></i>
-          <span>History</span>
-          <span id="historyBadge" class="count-badge" aria-label="0 saved documents">0</span>
-        </button>
+            id="openHistoryBtn"
+            type="button"
+            class="history-link"
+            title="Open saved documents"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="historyDrawer"
+          >
+            <i data-lucide="history"></i>
+            <span>History</span>
+            <span id="historyBadge" class="count-badge" aria-label="0 saved documents">0</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -189,12 +195,12 @@
       <div class="loading-card">
         <div class="loading-spinner" aria-hidden="true">
           <span class="spinner-ring"></span>
-          <i data-lucide="sparkles" class="spinner-icon"></i>
+          <svg class="ai-sparkle-icon spinner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.2 2.5C9.8 6.4 12.0 8.6 15.9 9.2C12.0 9.8 9.8 12.0 9.2 15.9C8.6 12.0 6.4 9.8 2.5 9.2C6.4 8.6 8.6 6.4 9.2 2.5Z"/>
+            <path d="M17.3 13.1C17.7 15.6 19.0 16.9 21.5 17.3C19.0 17.7 17.7 19.0 17.3 21.5C16.9 19.0 15.6 17.7 13.1 17.3C15.6 16.9 16.9 15.6 17.3 13.1Z"/>
+          </svg>
         </div>
-        <div>
-          <p class="loading-title">Extracting…</p>
-          <p class="loading-sub">Reading math, tables, diagrams</p>
-        </div>
+        <p class="loading-title">Extracting…</p>
       </div>
     </div>
 
@@ -209,13 +215,13 @@
         <div class="actionbar-actions">
           <button id="exportPdfBtn" type="button" class="btn-primary btn-sm" title="Download PDF">
             <i data-lucide="file-down"></i>
-            <span>Download PDF</span>
+            <span>PDF</span>
           </button>
 
           <div class="btn-group" role="group" aria-label="More export options">
             <button id="exportDocxBtn" type="button" class="btn-secondary btn-sm" title="Download Word document (.docx)">
               <i data-lucide="file-text"></i>
-              <span>Word (.docx)</span>
+              <span>Word</span>
             </button>
 
             <button id="printDocBtn" type="button" class="btn-ghost btn-sm" title="Print document or save as PDF">
@@ -258,7 +264,6 @@
             <span id="noteDocLabel">Note</span>
           </button>
         </div>
-        </div>
       </div>
 
       <div class="document-card">
@@ -271,31 +276,12 @@
       </div>
     </section>
 
-    <!-- How it works (Hattrick-style 01 / 02 / 03) -->
-    <section class="steps no-print" aria-label="How it works">
-      <ol class="steps-list">
-        <li class="step">
-          <span class="step-num" aria-hidden="true">01</span>
-          <p class="step-title">Drop the link</p>
-          <p class="step-text">Canvas or chat links work.</p>
-        </li>
-        <li class="step">
-          <span class="step-num" aria-hidden="true">02</span>
-          <p class="step-title">Get the document</p>
-          <p class="step-text">Math, tables, diagrams intact.</p>
-        </li>
-        <li class="step">
-          <span class="step-num" aria-hidden="true">03</span>
-          <p class="step-title">Download or print</p>
-          <p class="step-text">PDF, Word, print.</p>
-        </li>
-      </ol>
-    </section>
-
     <footer class="footer no-print">
-      <span>Gemini Canvas Extractor — share link in, document out.</span>
-      <span class="footer-dot" aria-hidden="true">•</span>
-      <span class="muted">PDF • DOCX • Print</span>
+      <span>PDF</span>
+      <span class="footer-dot" aria-hidden="true">·</span>
+      <span>DOCX</span>
+      <span class="footer-dot" aria-hidden="true">·</span>
+      <span>Print</span>
     </footer>
   </main>
 
@@ -306,52 +292,65 @@
     <div class="drawer-head">
       <div class="drawer-title">
         <i data-lucide="history" aria-hidden="true"></i>
-        <h3>Saved documents</h3>
+        <h2>History</h2>
       </div>
-      <button id="closeHistoryBtn" class="icon-btn" aria-label="Close history">
+      <button id="closeHistoryBtn" class="icon-btn icon-btn--square" aria-label="Close history">
         <i data-lucide="x"></i>
       </button>
     </div>
 
-    <div class="drawer-filter-bar" role="tablist" aria-label="Filter documents">
-      <button
-        id="historyFilterAllBtn"
-        type="button"
-        class="drawer-filter-btn is-active"
-        role="tab"
-        aria-selected="true"
-      >
-        <span>All</span>
-        <span id="historyCountAll" class="count-badge">0</span>
-      </button>
-      <button
-        id="historyFilterStarredBtn"
-        type="button"
-        class="drawer-filter-btn"
-        role="tab"
-        aria-selected="false"
-      >
-        <i data-lucide="star"></i>
-        <span>Starred</span>
-        <span id="historyCountStarred" class="count-badge">0</span>
-      </button>
-    </div>
+    <div class="drawer-toolbar">
+      <div class="drawer-filter-bar" id="historyFilterBar" role="tablist" aria-label="Filter documents">
+        <span class="drawer-filter-thumb" id="historyFilterThumb" aria-hidden="true"></span>
+        <button
+          id="historyFilterAllBtn"
+          type="button"
+          class="drawer-filter-btn is-active"
+          role="tab"
+          aria-selected="true"
+        >
+          <span>All</span>
+          <span id="historyCountAll" class="count-badge">0</span>
+        </button>
+        <button
+          id="historyFilterStarredBtn"
+          type="button"
+          class="drawer-filter-btn"
+          role="tab"
+          aria-selected="false"
+        >
+          <i data-lucide="star"></i>
+          <span>Starred</span>
+          <span id="historyCountStarred" class="count-badge">0</span>
+        </button>
+      </div>
 
-    <div class="drawer-search">
-      <label for="historySearchInput" class="sr-only">Search documents</label>
-      <input
-        type="text"
-        id="historySearchInput"
-        placeholder="Search documents…"
-        class="drawer-input"
-        autocomplete="off"
-      >
+      <div class="drawer-search">
+        <i data-lucide="search" class="drawer-search-icon" aria-hidden="true"></i>
+        <label for="historySearchInput" class="sr-only">Search documents</label>
+        <input
+          type="text"
+          id="historySearchInput"
+          placeholder="Search…"
+          class="drawer-input"
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button
+          type="button"
+          id="clearHistorySearchBtn"
+          class="drawer-search-clear is-hidden"
+          aria-label="Clear search"
+        >
+          <i data-lucide="x"></i>
+        </button>
+      </div>
     </div>
 
     <div id="historyItemsList" class="drawer-list"></div>
 
     <div class="drawer-foot">
-      <span id="historyItemCountText">0 saved</span>
+      <span id="historyItemCountText" class="drawer-foot-count"></span>
       <button id="clearAllHistoryBtn" type="button" class="danger-link">Clear all</button>
     </div>
   </aside>
